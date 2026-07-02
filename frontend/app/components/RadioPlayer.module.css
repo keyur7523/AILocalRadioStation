@@ -1,0 +1,306 @@
+.console {
+  width: min(540px, 100%);
+  padding: 2rem 2rem 1.6rem;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, var(--bg-panel-2), var(--bg-panel));
+  border: 1px solid var(--line-strong);
+  box-shadow:
+    0 1px 0 rgba(255, 220, 170, 0.06) inset,
+    0 40px 80px -40px rgba(0, 0, 0, 0.9),
+    0 0 60px -20px var(--amber-glow);
+  animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+}
+
+/* ---- header / bezel ---- */
+.bezel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.fmTag {
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  border-radius: 5px;
+  padding: 0.12rem 0.32rem;
+  transform: translateY(-0.35rem);
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 2.6rem;
+  line-height: 0.9;
+  margin: 0;
+  color: var(--cream);
+  letter-spacing: 0.01em;
+}
+
+.freq {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.4rem;
+  color: var(--amber);
+}
+
+.onair {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 0.32rem 0.62rem;
+  white-space: nowrap;
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.onairDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--faint);
+  transition: background 0.3s ease;
+}
+
+.onairLive {
+  color: var(--amber-bright);
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+}
+
+.onairLive .onairDot {
+  background: var(--amber-bright);
+  box-shadow: 0 0 0 0 var(--amber-glow);
+  animation: pulse 1.6s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.tagline {
+  margin: 0.5rem 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
+/* ---- visualizer ---- */
+.scope {
+  position: relative;
+  margin: 1.4rem 0 1.5rem;
+  height: 132px;
+  border-radius: 14px;
+  background:
+    radial-gradient(120% 90% at 50% 50%, rgba(242, 169, 59, 0.07), transparent 70%),
+    #100c08;
+  border: 1px solid var(--line);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.scopeHint {
+  position: absolute;
+  inset: auto 0 0.6rem 0;
+  text-align: center;
+  font-size: 0.66rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--faint);
+  pointer-events: none;
+}
+
+/* ---- controls ---- */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+}
+
+.knob {
+  flex: none;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #1a1208;
+  background: radial-gradient(circle at 38% 32%, var(--amber-bright), var(--amber-deep));
+  border: 1px solid color-mix(in srgb, var(--amber) 70%, #000);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.4) inset,
+    0 -2px 6px rgba(0, 0, 0, 0.3) inset,
+    0 10px 26px -8px var(--amber-glow);
+  transition: transform 0.18s ease, box-shadow 0.25s ease;
+}
+
+.knob:hover {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 -2px 6px rgba(0, 0, 0, 0.3) inset,
+    0 14px 32px -8px var(--amber-glow);
+}
+
+.knob:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.knob svg {
+  transform: translateX(1px);
+}
+
+.knobOn svg {
+  transform: none;
+}
+
+.fader {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.faderLabel {
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.fader input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--amber) var(--fill, 80%),
+    rgba(244, 236, 224, 0.12) var(--fill, 80%)
+  );
+  cursor: pointer;
+}
+
+.fader input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--cream);
+  border: 1px solid var(--amber-deep);
+  box-shadow: 0 0 10px -2px var(--amber-glow);
+}
+
+.fader input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--amber-deep);
+  border-radius: 50%;
+  background: var(--cream);
+}
+
+.error {
+  margin: 0.9rem 0 0;
+  font-size: 0.74rem;
+  color: #f0997b;
+}
+
+/* ---- readout ---- */
+.readout {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.clock {
+  color: var(--amber);
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.dotSep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.listeners {
+  letter-spacing: 0.02em;
+}
+
+.share {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--cream);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 0.34rem 0.66rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.share:hover {
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  color: var(--amber-bright);
+  background: rgba(242, 169, 59, 0.06);
+}
+
+@media (max-width: 480px) {
+  .console {
+    padding: 1.5rem 1.3rem 1.2rem;
+  }
+  .wordmark {
+    font-size: 2.1rem;
+  }
+  .readout {
+    flex-wrap: wrap;
+  }
+}

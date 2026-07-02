@@ -49,8 +49,10 @@ Each station is defined by:
 
 ## Implementation phases
 
-### Phase I
+### Phase I — ✅ done
 Set up a streaming server that loops 3 mp3 files over and over. Distribute a link anyone can click to play the stream — all listeners hear the same stream.
+
+Implemented: a Nest backend spawns one ffmpeg process that loops the media folder at real-time pace and fans the bytes out to every listener on `GET /stream` (one shared playhead). A Next.js player tunes into that stream. See **Running locally** below.
 
 ### Phase II
 1. Create shorter clips to speed up testing (~20 seconds total)
@@ -73,11 +75,43 @@ To be defined — weather/news/events, scheduled jingles, song requests, social 
 
 ## Tech stack
 
-- **Frontend:** Next.js
+- **Frontend:** Next.js (App Router, React 19)
 - **Backend:** Nest.js
-- **Audio engine:** ffmpeg
-- **Live metadata:** Server-Sent Events (SSE)
+- **Audio engine:** ffmpeg (must be installed and on `PATH`)
+- **Live metadata:** Server-Sent Events (SSE) — planned for the now-playing feed
+
+## Project structure
+
+```
+backend/    Nest.js broadcast server (ffmpeg fan-out, /stream, /station, /health)
+  media/    .mp3 rotation (Phase I ships 3 placeholder tones)
+frontend/   Next.js listener UI (the "On Air" player)
+```
+
+## Running locally
+
+Requires Node 20+ and `ffmpeg` on your `PATH`.
+
+```bash
+# 1. Backend (broadcast server) — http://localhost:3001
+cd backend
+npm install
+npm run start:dev        # streams the 3 mp3s in backend/media on a loop
+
+# 2. Frontend (player) — http://localhost:3000
+cd frontend
+npm install
+npm run dev
+```
+
+Open http://localhost:3000 and press play. The raw shareable stream is
+http://localhost:3001/stream (drop it into any audio player). Configure the
+station identity and ports via `backend/.env` (see `backend/.env.example`).
+
+To use your own music, drop `.mp3` files into `backend/media/` (they play in
+filename order) and restart the backend.
 
 ## Status
 
-Early planning / architecture. No code yet.
+**Phase I complete** — shared live stream working end-to-end (Nest + ffmpeg
+fan-out → Next.js player). Next up: Phase II (short test clips + DJ time checks).

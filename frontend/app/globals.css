@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/*
+  KIND FM — warm analog "on air" theme.
+  Backlit-amber dial glow over deep warm charcoal. Editorial serif wordmark,
+  mono technical readouts. No cool greys, no purple gradients.
+*/
+
+:root {
+  --bg: #14100c;
+  --bg-panel: #1d1711;
+  --bg-panel-2: #251d15;
+  --line: rgba(244, 236, 224, 0.08);
+  --line-strong: rgba(244, 236, 224, 0.16);
+
+  --cream: #f4ece0;
+  --muted: #b6a890;
+  --faint: #7c7060;
+
+  --amber: #f2a93b;
+  --amber-bright: #ffc061;
+  --amber-deep: #c9781f;
+  --amber-glow: rgba(242, 169, 59, 0.5);
+
+  --font-display: var(--font-display), "Times New Roman", serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--cream);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--amber);
+  color: #1a1208;
+}
+
+/* The room: a warm amber spotlight bleeding from behind the console,
+   layered over faint film grain so the dark never reads as flat. */
+.stage {
+  position: relative;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.25rem;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 80%;
+  background: radial-gradient(
+    60% 70% at 50% 0%,
+    var(--amber-glow),
+    transparent 70%
+  );
+  opacity: 0.55;
+  z-index: -2;
+  pointer-events: none;
+}
+
+.stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.04;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
