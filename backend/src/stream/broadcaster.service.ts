@@ -146,7 +146,7 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
       'pipe:1',
     ];
 
-    const child = spawn('ffmpeg', args, {
+    const child = spawn(this.config.ffmpegPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.ffmpeg = child;

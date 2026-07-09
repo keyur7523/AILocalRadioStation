@@ -8,6 +8,11 @@ import { join } from 'node:path';
  * DJ, weather/news) will grow this into a proper config module.
  */
 export interface StreamConfig {
+  /**
+   * Path to the ffmpeg binary. Defaults to `ffmpeg` on PATH (present in the
+   * Docker image); override with FFMPEG_PATH if it lives elsewhere.
+   */
+  ffmpegPath: string;
   /** Absolute path to the folder of .mp3 files that make up the rotation. */
   mediaDir: string;
   /** Constant output bitrate, e.g. "128k". A CBR stream keeps listeners in sync. */
@@ -27,6 +32,7 @@ export interface StreamConfig {
 
 export function loadStreamConfig(): StreamConfig {
   return {
+    ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
     mediaDir: process.env.MEDIA_DIR
       ? process.env.MEDIA_DIR
       : join(process.cwd(), 'media'),

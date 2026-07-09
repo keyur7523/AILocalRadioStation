@@ -1,0 +1,43 @@
+# Render Blueprint — deploys the whole station.
+#
+#   backend  (Docker)  → the broadcast server; needs ffmpeg, so it runs in a
+#                        container that apt-installs it. Serves /stream.
+#   frontend (Node)    → the Next.js player. NEXT_PUBLIC_STREAM_BASE is baked
+#                        at BUILD time, so it must point at the backend URL.
+#
+# IMPORTANT: the two URLs reference each other. After the first deploy, confirm
+# the backend's real URL and update NEXT_PUBLIC_STREAM_BASE below if the auto
+# name differs, then redeploy the frontend.
+
+services:
+  - type: web
+    name: kindfm-backend
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: free
+    region: oregon
+    healthCheckPath: /health
+    # Keep to ONE instance: the shared playhead lives in a single ffmpeg
+    # process. Multiple instances would each broadcast their own playhead.
+    numInstances: 1
+    envVars:
+      - key: STATION_NAME
+        value: KIND FM
+      - key: STATION_FREQUENCY
+        value: "98.7"
+      - key: STATION_CITY
+        value: Anytown
+
+  - type: web
+    name: kindfm-frontend
+    runtime: node
+    rootDir: frontend
+    plan: free
+    region: oregon
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      # Build-time: must equal the backend service's public URL.
+      - key: NEXT_PUBLIC_STREAM_BASE
+        value: https://kindfm-backend.onrender.com
