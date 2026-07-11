@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AI Local Radio — Status</title>
+    <style>
+      :root {
+        --green: #24a148;
+        --green-bg: #e6f6ec;
+        --amber: #d9902a;
+        --amber-bg: #fbf1e0;
+        --red: #d5313a;
+        --red-bg: #fbe9ea;
+        --gray: #dfe3e8;
+        --ink: #1c2530;
+        --muted: #66727f;
+        --line: #e7ebef;
+        --card: #ffffff;
+        --bg: #f6f8fa;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      .wrap { max-width: 760px; margin: 0 auto; padding: 32px 20px 64px; }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+      .logo {
+        width: 30px; height: 30px; border-radius: 7px;
+        background: #14100c; color: #f2a93b; display: grid; place-items: center;
+        font-size: 15px;
+      }
+      header h1 { font-size: 17px; font-weight: 600; margin: 0; }
+      header .sub { color: var(--muted); font-size: 13px; }
+      .banner {
+        border-radius: 10px; padding: 20px 22px; margin-bottom: 26px;
+        display: flex; align-items: center; gap: 12px; font-size: 19px; font-weight: 600;
+      }
+      .banner .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+      .op { background: var(--green-bg); color: #157334; }
+      .op .dot { background: var(--green); }
+      .deg { background: var(--amber-bg); color: #97600f; }
+      .deg .dot { background: var(--amber); }
+      .dn { background: var(--red-bg); color: #9c1f26; }
+      .dn .dot { background: var(--red); }
+      .card {
+        background: var(--card); border: 1px solid var(--line);
+        border-radius: 12px; overflow: hidden;
+      }
+      .row { padding: 16px 20px; border-top: 1px solid var(--line); }
+      .row:first-child { border-top: none; }
+      .row-top { display: flex; align-items: center; justify-content: space-between; }
+      .row-name { font-weight: 500; }
+      .status-label { font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 7px; }
+      .status-label .dot { width: 9px; height: 9px; border-radius: 50%; }
+      .t-op { color: var(--green); } .t-op .dot { background: var(--green); }
+      .t-deg { color: var(--amber); } .t-deg .dot { background: var(--amber); }
+      .t-dn { color: var(--red); } .t-dn .dot { background: var(--red); }
+      .bars { display: flex; gap: 2px; margin-top: 12px; height: 30px; align-items: stretch; }
+      .bars span { flex: 1; border-radius: 2px; background: var(--gray); min-width: 2px; }
+      .bars span.g { background: var(--green); }
+      .bars span.a { background: var(--amber); }
+      .bars span.r { background: var(--red); }
+      .bars-meta { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 7px; }
+      .footer { margin-top: 26px; color: var(--muted); font-size: 12.5px; text-align: center; line-height: 1.7; }
+      .footer a { color: var(--muted); }
+      .loading { color: var(--muted); padding: 40px 0; text-align: center; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="logo">♪</div>
+        <div>
+          <h1>AI Local Radio</h1>
+          <div class="sub">Live stream status</div>
+        </div>
+      </header>
+
+      <div id="banner" class="banner op">
+        <span class="dot"></span><span id="banner-text">Loading status…</span>
+      </div>
+
+      <div id="components" class="card">
+        <div class="loading">Checking services…</div>
+      </div>
+
+      <div class="footer">
+        <div>
+          Checks run every ~10 minutes from GitHub Actions — independently of the
+          service, so this page stays up during an outage.
+        </div>
+        <div id="updated"></div>
+      </div>
+    </div>
+
+    <script>
+      const CLS = { operational: "op", degraded: "deg", down: "dn" };
+      const TCLS = { operational: "t-op", degraded: "t-deg", down: "t-dn" };
+      const LABEL = {
+        operational: "Operational",
+        degraded: "Degraded",
+        down: "Down",
+      };
+      const BANNER = {
+        operational: "All systems operational",
+        degraded: "Degraded performance",
+        down: "Service disruption",
+      };
+
+      function dayBars(daily, id) {
+        const byDay = (daily && daily[id]) || {};
+        const out = [];
+        const today = new Date();
+        for (let i = 89; i >= 0; i--) {
+          const d = new Date(today);
+          d.setUTCDate(d.getUTCDate() - i);
+          const key = d.toISOString().slice(0, 10);
+          const b = byDay[key];
+          if (!b || !b.total) {
+            out.push({ cls: "", pct: null, key });
+          } else {
+            const pct = (b.up / b.total) * 100;
+            const cls = pct >= 99 ? "g" : pct >= 90 ? "a" : "r";
+            out.push({ cls, pct, key });
+          }
+        }
+        return out;
+      }
+
+      function uptimePct(daily, id) {
+        const byDay = (daily && daily[id]) || {};
+        let up = 0,
+          total = 0;
+        for (const k in byDay) {
+          up += byDay[k].up;
+          total += byDay[k].total;
+        }
+        return total ? ((up / total) * 100).toFixed(2) + "%" : "—";
+      }
+
+      async function load() {
+        let status, history;
+        try {
+          status = await (await fetch("./data/status.json?" + Date.now())).json();
+        } catch {
+          document.getElementById("banner-text").textContent =
+            "Status data not published yet";
+          document.getElementById("components").innerHTML =
+            '<div class="loading">The first check hasn\'t run yet. Check back shortly.</div>';
+          return;
+        }
+        try {
+          history = await (await fetch("./data/history.json?" + Date.now())).json();
+        } catch {
+          history = { daily: {} };
+        }
+        const daily = history.daily || {};
+
+        const banner = document.getElementById("banner");
+        banner.className = "banner " + CLS[status.overall];
+        document.getElementById("banner-text").textContent =
+          BANNER[status.overall];
+
+        document.getElementById("components").innerHTML = status.components
+          .map((c) => {
+            const bars = dayBars(daily, c.id)
+              .map(
+                (b) =>
+                  `<span class="${b.cls}" title="${b.key}${
+                    b.pct == null ? " · no data" : " · " + b.pct.toFixed(1) + "%"
+                  }"></span>`,
+              )
+              .join("");
+            const note = c.message ? ` · ${c.message}` : "";
+            return `<div class="row">
+              <div class="row-top">
+                <span class="row-name">${c.name}</span>
+                <span class="status-label ${TCLS[c.status]}"><span class="dot"></span>${
+                  LABEL[c.status]
+                }${note}</span>
+              </div>
+              <div class="bars">${bars}</div>
+              <div class="bars-meta"><span>90 days ago</span><span>${uptimePct(
+                daily,
+                c.id,
+              )} uptime</span></div>
+            </div>`;
+          })
+          .join("");
+
+        const when = new Date(status.updatedAt);
+        document.getElementById("updated").textContent =
+          "Last checked " + when.toLocaleString();
+      }
+
+      load();
+      setInterval(load, 60000);
+    </script>
+  </body>
+</html>

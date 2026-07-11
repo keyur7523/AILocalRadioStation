@@ -1,0 +1,61 @@
+name: Status page
+
+# Runs the uptime checker on GitHub's infrastructure (independent of Render)
+# and publishes the static status page to GitHub Pages. Writes no commits — the
+# checker persists history by reading its own last-published data — so this
+# never triggers a Render redeploy.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *" # every ~10 minutes (GitHub's minimum granularity)
+  workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "status/**"
+      - ".github/workflows/status.yml"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: status-pages
+  cancel-in-progress: false
+
+jobs:
+  status:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Needed before the check so it knows where to read prior history from.
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Run uptime checks
+        env:
+          STATUS_BACKEND_URL: https://ailocalradiostation-backend.onrender.com
+          # Set STATUS_FRONTEND_URL here to add the "Player" component once the
+          # frontend is deployed, e.g. https://ailocalradiostation-frontend.onrender.com
+          STATUS_FRONTEND_URL: ""
+          STATUS_PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: node status/check.mjs
+
+      - name: Upload page artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: status
+
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

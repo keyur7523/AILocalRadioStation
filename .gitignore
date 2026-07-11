@@ -9,6 +9,9 @@ out/
 # Logs
 *.log
 
+# Status page: generated at deploy time by the checker
+status/data/
+
 # Environment
 .env
 .env.local
