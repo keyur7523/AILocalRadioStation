@@ -40,4 +40,4 @@ services:
     envVars:
       # Build-time: must equal the backend service's public URL.
       - key: NEXT_PUBLIC_STREAM_BASE
-        value: https://kindfm-backend.onrender.com
+        value: https://ailocalradiostation-backend.onrender.com
