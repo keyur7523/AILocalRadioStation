@@ -4,6 +4,8 @@ A streaming server that sounds like a local music radio station — one shared l
 
 > **This is a living document.** It will change as the project progresses.
 
+📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)**
+
 ## Overview
 
 Create a streaming server that loops music and feels like a real local radio station: songs back-to-back with a DJ announcing tracks, giving time checks, and reading local weather and news. Anyone with the link tunes into the **same** live stream — like turning a radio dial, you join wherever the broadcast currently is.
@@ -84,8 +86,9 @@ To be defined — weather/news/events, scheduled jingles, song requests, social 
 
 ```
 backend/    Nest.js broadcast server (ffmpeg fan-out, /stream, /station, /health)
-  media/    .mp3 rotation (Phase I ships 3 placeholder tones)
+  media/    .mp3 rotation (short test clips for now)
 frontend/   Next.js listener UI (the "On Air" player)
+status/     Self-hosted status page (GitHub Actions checker + GitHub Pages)
 ```
 
 ## Running locally
@@ -110,6 +113,18 @@ station identity and ports via `backend/.env` (see `backend/.env.example`).
 
 To use your own music, drop `.mp3` files into `backend/media/` (they play in
 filename order) and restart the backend.
+
+## Service status
+
+Live status page: **https://keyur7523.github.io/AILocalRadioStation/**
+
+It's an independent status page (hosted on **GitHub Pages**, checked by **GitHub
+Actions** every ~10 min) that pings the public endpoints and reports the health
+of the **Live Stream**, **Broadcast API**, and **Audio Engine**. It runs on
+GitHub's infrastructure — not Render — so it stays up and reports the outage
+even when the backend is down. The checker writes no commits (history persists
+via its own last-published data), so it never triggers a Render redeploy. See
+[`status/`](status/) for details.
 
 ## Status
 
