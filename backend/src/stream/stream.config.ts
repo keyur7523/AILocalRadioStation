@@ -14,6 +14,8 @@ export interface StreamConfig {
    * Docker image); override with FFMPEG_PATH if it lives elsewhere.
    */
   ffmpegPath: string;
+  /** Path to the ffprobe binary (ships with ffmpeg); used to time talk-overs. */
+  ffprobePath: string;
   /** Absolute path to the folder of .mp3 files that make up the rotation. */
   mediaDir: string;
   /** Constant output bitrate, e.g. "128k". A CBR stream keeps listeners in sync. */
@@ -37,6 +39,10 @@ export interface StreamConfig {
     enabled: boolean;
     /** The DJ speaks once every N songs. */
     everyNSongs: number;
+    /** Talk OVER the song's fading tail (ducking) vs back-to-back after it. */
+    overlap: boolean;
+    /** Seconds of music-only outro left after the DJ voice ends (overlap mode). */
+    overlapTailPadSec: number;
     /** Which TTS engine to bind: 'espeak' (default) or 'piper'. */
     ttsEngine: string;
     /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
@@ -49,6 +55,7 @@ export interface StreamConfig {
 export function loadStreamConfig(): StreamConfig {
   return {
     ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
+    ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',
     mediaDir: process.env.MEDIA_DIR
       ? process.env.MEDIA_DIR
       : join(process.cwd(), 'media'),
@@ -65,6 +72,8 @@ export function loadStreamConfig(): StreamConfig {
     dj: {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
+      overlap: (process.env.DJ_OVERLAP ?? 'true') !== 'false',
+      overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
         process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-amy-medium.onnx',

@@ -35,6 +35,8 @@ services:
         value: "true"
       - key: DJ_EVERY_N_SONGS
         value: "1"
+      - key: DJ_OVERLAP
+        value: "true"
 
   - type: web
     name: kindfm-frontend

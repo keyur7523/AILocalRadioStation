@@ -44,6 +44,11 @@ export class DjService {
     return this.config.dj.everyNSongs;
   }
 
+  /** Whether the DJ talks over the song's tail (vs back-to-back after it). */
+  get overlap(): boolean {
+    return this.config.dj.overlap;
+  }
+
   /**
    * Produce the next interstitial clip (a current-time announcement), generated
    * fresh so the spoken time is accurate. Returns the audio file path, or `null`

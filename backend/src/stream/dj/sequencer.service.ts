@@ -12,7 +12,7 @@ export interface SequencerHooks {
   onChunk: (chunk: Buffer) => void;
 }
 
-type Item = { kind: 'song' | 'dj'; path: string };
+type Item = { kind: 'song' | 'dj'; path: string; talkover?: string };
 
 /**
  * The broadcast engine.
@@ -140,38 +140,36 @@ export class SequencerService implements OnModuleDestroy {
     if (this.stopping || !this.encoder) return;
 
     const item = await this.nextItem();
-    const encoder = this.encoder;
-    if (this.stopping || !encoder) return;
+    if (this.stopping || !this.encoder) return;
     if (!item) {
       // A due DJ clip soft-failed; advance to a song on the next tick.
       setImmediate(() => void this.playNext());
       return;
     }
 
-    if (item.kind === 'song') {
-      this.logger.log(`▶  ${item.path.split('/').pop()}`);
+    // Build the decoder command. A song with a `talkover` clip is played through
+    // a ducking filtergraph (song + DJ voice over its tail); everything else is
+    // a plain decode. talkoverArgs may await ffprobe, so re-check state after.
+    let args: string[];
+    if (item.kind === 'song' && item.talkover) {
+      args =
+        (await this.talkoverArgs(item.path, item.talkover)) ??
+        this.plainDecoderArgs(item.path);
+    } else {
+      args = this.plainDecoderArgs(item.path);
     }
 
-    const decoder = spawn(
-      this.config.ffmpegPath,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-re',
-        '-i',
-        item.path,
-        '-vn',
-        '-f',
-        PCM.format,
-        '-ar',
-        String(this.config.sampleRate),
-        '-ac',
-        String(PCM.channels),
-        'pipe:1',
-      ],
-      { stdio: ['ignore', 'pipe', 'pipe'] },
-    );
+    const encoder = this.encoder;
+    if (this.stopping || !encoder) return;
+
+    if (item.kind === 'song') {
+      const name = item.path.split('/').pop();
+      this.logger.log(`▶  ${name}${item.talkover ? ' (DJ over tail)' : ''}`);
+    }
+
+    const decoder = spawn(this.config.ffmpegPath, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     this.decoder = decoder;
 
     // { end: false } is load-bearing: never close the encoder's stdin here.
@@ -197,10 +195,12 @@ export class SequencerService implements OnModuleDestroy {
 
   /**
    * Pick the next item. Songs cycle in order; after every `everyNSongs` songs a
-   * DJ clip is inserted. Returns `null` when a due DJ clip fails (soft-fail),
-   * signalling the caller to advance to the next song.
+   * DJ time-check is inserted — either as its own segment (`overlap` off, plays
+   * back-to-back) or fused onto the upcoming song's tail (`overlap` on). Returns
+   * `null` when a due back-to-back DJ clip fails (soft-fail → play a song).
    */
   private async nextItem(): Promise<Item | null> {
+    // Back-to-back DJ segment queued from a previous song.
     if (this.pendingDj) {
       this.pendingDj = false;
       const clip = await this.dj.nextInterstitial();
@@ -210,11 +210,131 @@ export class SequencerService implements OnModuleDestroy {
     const path = this.songs[this.songIndex];
     this.songIndex = (this.songIndex + 1) % this.songs.length;
     this.songsSinceDj += 1;
-    if (this.dj.enabled && this.songsSinceDj >= this.dj.everyNSongs) {
-      this.pendingDj = true;
+
+    const djDue = this.dj.enabled && this.songsSinceDj >= this.dj.everyNSongs;
+    if (djDue) {
       this.songsSinceDj = 0;
+      if (this.dj.overlap) {
+        // II.3: generate the clip now and talk over this song's tail. A
+        // soft-fail (null) just means the song plays without a talk-over.
+        const clip = await this.dj.nextInterstitial();
+        return { kind: 'song', path, talkover: clip ?? undefined };
+      }
+      // II.2: the DJ speaks as its own segment after this song.
+      this.pendingDj = true;
     }
     return { kind: 'song', path };
+  }
+
+  /** Plain real-time decode of one file to the shared PCM contract. */
+  private plainDecoderArgs(path: string): string[] {
+    return [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-re',
+      '-i',
+      path,
+      '-vn',
+      '-f',
+      PCM.format,
+      '-ar',
+      String(this.config.sampleRate),
+      '-ac',
+      String(PCM.channels),
+      'pipe:1',
+    ];
+  }
+
+  /**
+   * Decode `song` with `clip` mixed over its tail: the voice is delayed to start
+   * near the end, the music is ducked underneath it (sidechain compression), and
+   * the voice is padded with silence to the song's length so the duck doesn't
+   * truncate the song. Returns `null` if durations can't be probed (→ fall back
+   * to a plain song decode).
+   */
+  private async talkoverArgs(
+    song: string,
+    clip: string,
+  ): Promise<string[] | null> {
+    try {
+      const [songDur, clipDur] = await Promise.all([
+        this.probeDurationSec(song),
+        this.probeDurationSec(clip),
+      ]);
+      const sr = this.config.sampleRate;
+      const startMs = Math.max(
+        0,
+        Math.round(
+          (songDur - clipDur - this.config.dj.overlapTailPadSec) * 1000,
+        ),
+      );
+      const layout = `aformat=sample_rates=${sr}:channel_layouts=stereo`;
+      const graph =
+        `[0:a]${layout}[music];` +
+        `[1:a]${layout},adelay=${startMs}|${startMs},apad=whole_dur=${songDur},asplit=2[vkey][vmix];` +
+        `[music][vkey]sidechaincompress=threshold=0.015:ratio=10:attack=20:release=350[ducked];` +
+        `[ducked][vmix]amix=inputs=2:normalize=0:dropout_transition=0[out]`;
+      return [
+        '-hide_banner',
+        '-loglevel',
+        'error',
+        '-re',
+        '-i',
+        song,
+        '-i',
+        clip,
+        '-filter_complex',
+        graph,
+        '-map',
+        '[out]',
+        '-vn',
+        '-f',
+        PCM.format,
+        '-ar',
+        String(sr),
+        '-ac',
+        String(PCM.channels),
+        'pipe:1',
+      ];
+    } catch (err) {
+      this.logger.warn(
+        `talk-over unavailable (${(err as Error).message}); playing song only`,
+      );
+      return null;
+    }
+  }
+
+  /** Probe a media file's duration in seconds via ffprobe. */
+  private probeDurationSec(path: string): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(
+        this.config.ffprobePath,
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format=duration',
+          '-of',
+          'csv=p=0',
+          path,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let out = '';
+      let err = '';
+      proc.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      proc.stderr.on('data', (d: Buffer) => (err += d.toString()));
+      proc.on('error', reject);
+      proc.on('close', (code) => {
+        const seconds = Number.parseFloat(out.trim());
+        if (code === 0 && Number.isFinite(seconds) && seconds > 0) {
+          resolve(seconds);
+        } else {
+          reject(new Error(`ffprobe failed (${code}): ${err.trim() || out.trim()}`));
+        }
+      });
+    });
   }
 
   private killDecoder(): void {
