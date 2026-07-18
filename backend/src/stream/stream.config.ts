@@ -37,8 +37,10 @@ export interface StreamConfig {
     enabled: boolean;
     /** The DJ speaks once every N songs. */
     everyNSongs: number;
-    /** Which TTS engine is bound (informational; the DI binding is authoritative). */
+    /** Which TTS engine to bind: 'espeak' (default) or 'piper'. */
     ttsEngine: string;
+    /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
+    voiceModelPath: string;
     /** Directory where synthesized DJ clips are cached. */
     cacheDir: string;
   };
@@ -64,6 +66,8 @@ export function loadStreamConfig(): StreamConfig {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
+      voiceModelPath:
+        process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-amy-medium.onnx',
       cacheDir: process.env.DJ_CACHE_DIR ?? join(tmpdir(), 'radio-dj-clips'),
     },
   };
