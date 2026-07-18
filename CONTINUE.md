@@ -26,10 +26,9 @@ nothing is lost by leaving iCloud.
 
 - **Phase I ✅** — shared live MP3 stream (Nest + ffmpeg fan-out) + Next.js
   player + Render deploy + independent status page (GitHub Pages).
-- **Phase II.2 ✅** — the DJ speaks the current time between songs. **Done and
-  fully verified** (build + unit tests + live capture in the real app).
-- **Phase II.3 ⬜ (next)** — DJ talking *over* the song's fading tail
-  (audio ducking/mixing). Design is in `docs/phase-2-dj-timecheck.md` §13.
+- **Phase II ✅ (complete)** — the DJ speaks the current time, talking **over the
+  song's fading tail** with sidechain ducking (`DJ_OVERLAP=true`; set false for
+  back-to-back). Done and fully verified (build + unit tests + live capture).
 
 ## Phase II.2 — what was built
 
@@ -80,5 +79,7 @@ Backend is Docker on Render (single instance — shared playhead). Pushing to
 
 ## Next task
 
-Phase II.3 — DJ over the song tail. Start from `docs/phase-2-dj-timecheck.md`
-§13 (ducking approach) and the sequencer's decoder→encoder seam.
+Phase II is done. Later phases (not yet started): song name/artist
+announcements, weather/news at the top of the hour, scheduled station-ID
+jingles. All slot into `DjService` as new interstitial types on the existing
+sequencer — see `docs/phase-2-dj-timecheck.md` §13 "Future work".
