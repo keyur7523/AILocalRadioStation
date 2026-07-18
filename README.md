@@ -56,10 +56,17 @@ Set up a streaming server that loops 3 mp3 files over and over. Distribute a lin
 
 Implemented: a Nest backend spawns one ffmpeg process that loops the media folder at real-time pace and fans the bytes out to every listener on `GET /stream` (one shared playhead). A Next.js player tunes into that stream. See **Running locally** below.
 
-### Phase II
-1. Create shorter clips to speed up testing (~20 seconds total)
-2. Have the DJ say the current time at the end of each song
-3. Have the DJ say the current time over the tail of the song as it finishes (audio mixing, not just back-to-back playback)
+### Phase II — 🚧 in progress
+1. ✅ Create shorter clips to speed up testing (~20 seconds total)
+2. ✅ Have the DJ say the current time at the end of each song
+3. ⬜ Have the DJ say the current time over the tail of the song as it finishes (audio mixing, not just back-to-back playback)
+
+Implemented (II.1–II.2): the engine is now a **sequencer** — one persistent
+ffmpeg encoder plus a short-lived decoder per item — that plays song → spoken
+time-check → song on the shared stream. Speech is text-to-speech (default
+`espeak-ng`, swappable to Piper via `DJ_TTS_ENGINE`); the time is spoken in
+`STATION_TIMEZONE`. Toggle with `DJ_ENABLED`, cadence via `DJ_EVERY_N_SONGS`.
+Design details in [docs/phase-2-dj-timecheck.md](docs/phase-2-dj-timecheck.md).
 
 ### Later phases
 To be defined — weather/news/events, scheduled jingles, song requests, social posting.
@@ -128,5 +135,6 @@ via its own last-published data), so it never triggers a Render redeploy. See
 
 ## Status
 
-**Phase I complete** — shared live stream working end-to-end (Nest + ffmpeg
-fan-out → Next.js player). Next up: Phase II (short test clips + DJ time checks).
+**Phase II.2 complete** — the DJ now speaks the current time between songs on the
+shared stream (sequencer engine + TTS). Next up: Phase II.3 (DJ talking *over* the
+song's tail — audio ducking/mixing).
