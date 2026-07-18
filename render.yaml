@@ -28,6 +28,13 @@ services:
         value: "98.7"
       - key: STATION_CITY
         value: Anytown
+      # DJ time-check (Phase II). Set STATION_TIMEZONE to the station's real zone.
+      - key: STATION_TIMEZONE
+        value: America/New_York
+      - key: DJ_ENABLED
+        value: "true"
+      - key: DJ_EVERY_N_SONGS
+        value: "1"
 
   - type: web
     name: kindfm-frontend

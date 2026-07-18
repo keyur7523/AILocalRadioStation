@@ -1,3 +1,4 @@
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 /**
@@ -27,6 +28,19 @@ export interface StreamConfig {
     frequency: string;
     tagline: string;
     city: string;
+    /** IANA timezone the DJ announces local time in (DST-aware). */
+    timeZone: string;
+  };
+  /** DJ interstitial (spoken time-check) settings. */
+  dj: {
+    /** Master on/off for DJ segments; false = songs only (Phase I behavior). */
+    enabled: boolean;
+    /** The DJ speaks once every N songs. */
+    everyNSongs: number;
+    /** Which TTS engine is bound (informational; the DI binding is authoritative). */
+    ttsEngine: string;
+    /** Directory where synthesized DJ clips are cached. */
+    cacheDir: string;
   };
 }
 
@@ -44,6 +58,13 @@ export function loadStreamConfig(): StreamConfig {
       frequency: process.env.STATION_FREQUENCY ?? '98.7',
       tagline: process.env.STATION_TAGLINE ?? 'your local sound, on a loop',
       city: process.env.STATION_CITY ?? 'Anytown',
+      timeZone: process.env.STATION_TIMEZONE ?? 'America/New_York',
+    },
+    dj: {
+      enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
+      everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
+      ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
+      cacheDir: process.env.DJ_CACHE_DIR ?? join(tmpdir(), 'radio-dj-clips'),
     },
   };
 }
