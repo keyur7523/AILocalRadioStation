@@ -1,15 +1,11 @@
 import {
   Injectable,
   Logger,
-  OnModuleDestroy,
   OnModuleInit,
+  OnModuleDestroy,
 } from '@nestjs/common';
-import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import { existsSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { Readable } from 'node:stream';
 import { loadStreamConfig, type StreamConfig } from './stream.config';
+import { SequencerService } from './dj/sequencer.service';
 
 /**
  * Minimal contract for a connected listener. In practice this is an Express
@@ -21,13 +17,13 @@ export interface Listener {
 }
 
 /**
- * The heart of the station.
+ * The station's listener registry and fan-out.
  *
- * A single, long-lived ffmpeg process concatenates the media folder on an
- * infinite loop and emits one continuous, real-time MP3 byte stream. Every
- * listener subscribes to that *same* stream, so everyone shares one playhead —
- * tuning in mid-song, exactly like a real radio dial. This is what makes the
- * broadcast shared rather than per-listener.
+ * Audio production lives in {@link SequencerService} (the persistent encoder +
+ * per-item decoder engine). The broadcaster just subscribes to that one MP3
+ * stream and fans each chunk out to every `/stream` listener — so everyone
+ * shares one playhead. This keeps the HTTP surface (`getStationInfo`,
+ * `addListener`, `removeListener`) stable regardless of how audio is produced.
  */
 @Injectable()
 export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
@@ -35,18 +31,14 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
   private readonly config: StreamConfig = loadStreamConfig();
   private readonly listeners = new Set<Listener>();
 
-  private ffmpeg?: ChildProcessByStdio<null, Readable, Readable>;
-  private restartTimer?: NodeJS.Timeout;
-  private stopping = false;
+  constructor(private readonly sequencer: SequencerService) {}
 
   onModuleInit(): void {
-    this.start();
+    this.sequencer.start({ onChunk: (chunk) => this.broadcast(chunk) });
   }
 
   onModuleDestroy(): void {
-    this.stopping = true;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.ffmpeg?.kill('SIGTERM');
+    // The sequencer tears down its own ffmpeg processes via its OnModuleDestroy.
     this.listeners.clear();
   }
 
@@ -55,7 +47,7 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
     return {
       ...this.config.station,
       listeners: this.listeners.size,
-      online: !!this.ffmpeg && !this.ffmpeg.killed,
+      online: this.sequencer.online,
     };
   }
 
@@ -70,109 +62,6 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
     if (this.listeners.delete(listener)) {
       this.logger.log(`Listener left (${this.listeners.size} on air)`);
     }
-  }
-
-  /** Discover the rotation: every .mp3 in the media folder, in name order. */
-  private resolvePlaylist(): string[] {
-    const { mediaDir } = this.config;
-    if (!existsSync(mediaDir)) {
-      throw new Error(`Media directory not found: ${mediaDir}`);
-    }
-    const files = readdirSync(mediaDir)
-      .filter((name) => name.toLowerCase().endsWith('.mp3'))
-      .sort()
-      .map((name) => join(mediaDir, name));
-
-    if (files.length === 0) {
-      throw new Error(`No .mp3 files found in ${mediaDir}`);
-    }
-    return files;
-  }
-
-  /**
-   * Write an ffmpeg concat-demuxer playlist. Absolute paths are quoted and any
-   * single quotes escaped, so arbitrary filenames are safe with `-safe 0`.
-   */
-  private writeConcatFile(files: string[]): string {
-    const body = files
-      .map((file) => `file '${file.replace(/'/g, "'\\''")}'`)
-      .join('\n');
-    const path = join(tmpdir(), 'radio-playlist.txt');
-    writeFileSync(path, `${body}\n`, 'utf8');
-    return path;
-  }
-
-  private start(): void {
-    if (this.stopping) return;
-
-    let playlist: string;
-    try {
-      const files = this.resolvePlaylist();
-      playlist = this.writeConcatFile(files);
-      this.logger.log(
-        `Broadcasting ${files.length} track(s) from ${this.config.mediaDir}`,
-      );
-    } catch (err) {
-      this.logger.error((err as Error).message);
-      this.scheduleRestart();
-      return;
-    }
-
-    // -re paces input at real time (the key to a shared playhead);
-    // -stream_loop -1 repeats the whole playlist forever;
-    // re-encoding to CBR MP3 yields one clean, joinable stream.
-    const args = [
-      '-hide_banner',
-      '-loglevel',
-      'error',
-      '-re',
-      '-stream_loop',
-      '-1',
-      '-f',
-      'concat',
-      '-safe',
-      '0',
-      '-i',
-      playlist,
-      '-vn',
-      '-c:a',
-      'libmp3lame',
-      '-b:a',
-      this.config.bitrate,
-      '-ar',
-      String(this.config.sampleRate),
-      '-f',
-      'mp3',
-      'pipe:1',
-    ];
-
-    const child = spawn(this.config.ffmpegPath, args, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    this.ffmpeg = child;
-
-    child.stdout.on('data', (chunk: Buffer) => this.broadcast(chunk));
-    child.stderr.on('data', (chunk: Buffer) =>
-      this.logger.warn(`ffmpeg: ${chunk.toString().trim()}`),
-    );
-    child.on('error', (err) =>
-      this.logger.error(`Failed to spawn ffmpeg: ${err.message}`),
-    );
-    child.on('close', (code) => {
-      if (this.stopping) return;
-      this.logger.warn(`ffmpeg exited (code ${code}); restarting`);
-      this.ffmpeg = undefined;
-      this.scheduleRestart();
-    });
-  }
-
-  private scheduleRestart(): void {
-    if (this.stopping) return;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.restartTimer = setTimeout(
-      () => this.start(),
-      this.config.restartDelayMs,
-    );
   }
 
   /** Push one chunk to every listener, pruning any that have gone away. */
