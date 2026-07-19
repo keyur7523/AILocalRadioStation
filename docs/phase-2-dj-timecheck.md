@@ -165,23 +165,34 @@ chipmunk/slow-motion audio. This is captured as a single shared constant
 
 ### 5.3 Exact ffmpeg commands
 
-**Encoder (spawned once):**
+> **Pacing note (revised after implementation).** This section originally put
+> `-re` on each per-item **decoder** as the sole pacer. That drifts: every item
+> re-incurs ffmpeg's `-re` startup burst, so with short clips (~5s) the stream
+> runs 1.2–1.5× ahead of real time. The pacer therefore moved to the **encoder**
+> — one long-lived `-re` on the PCM input paces the whole broadcast, and pipe
+> backpressure throttles the (now unpaced) decoders to match. One pacer, no
+> accumulation (measured 1:1 real-time; the per-item boundary is cushioned by the
+> pipe buffer, so no underrun). Commands below reflect the shipped design.
+
+**Encoder (spawned once) — the single real-time pacer:**
 ```
 ffmpeg -hide_banner -loglevel error \
-  -f s16le -ar 44100 -ac 2 -i pipe:0 \
+  -re -f s16le -ar 44100 -ac 2 -i pipe:0 \
   -c:a libmp3lame -b:a 128k \
   -f mp3 pipe:1
 ```
-- No `-re` — it drains PCM as fast as it arrives.
+- `-re` on the **PCM input** consumes at exactly wall-clock rate — this is the
+  shared playhead. Its backpressure (via the pipe) throttles the decoders.
 - `stdio: ['pipe','pipe','pipe']` (stdin is now a pipe, unlike Phase I's `ignore`).
 
-**Decoder (spawned per item):**
+**Decoder (spawned per item) — runs flat-out, paced by the encoder:**
 ```
 ffmpeg -hide_banner -loglevel error \
-  -re -i <itemPath> \
+  -i <itemPath> \
   -vn -f s16le -ar 44100 -ac 2 pipe:1
 ```
-- `-re` on the **input** is the sole real-time pacer (the shared playhead).
+- **No `-re`** — decodes as fast as it can; the encoder's real-time consumption
+  backpressures it. (An `-re` here too would double up the pacing and drift.)
 - Output format forced to the PCM contract.
 
 **Node wiring (the load-bearing detail):**
@@ -446,7 +457,7 @@ the existing status page already covers up/down.
 |---|---|---|
 | 1 | PCM format mismatch → chipmunk/slow audio | Force `-ar SR -ac 2 -f s16le` on every decoder; one shared PCM constant (verified round-trips cleanly) |
 | 2 | Missing `{ end:false }` → first song end kills the stream | Code-review checkpoint; the single most important line |
-| 3 | Pacing inversion | `-re` on the **decoder** only, never the encoder |
+| 3 | Pacing drift with short items | `-re` on the **encoder** (single pacer); decoders run flat-out, throttled by pipe backpressure. *(Revised from the original "-re on the decoder only" — that drifted 1.2–1.5× on short clips. See §5.3.)* |
 | 4 | TTS as hard dependency stalls music | Soft-fail → `null` + synth timeout; sequencer skips |
 | 5 | Double-advance (decoder emits `error`+`close`) | Guard `advance()` to run once per decoder |
 | 6 | Refactor regression (controller contract) | Keep `getStationInfo/add/removeListener/broadcast` in broadcaster with identical signatures |
