@@ -54,6 +54,8 @@ export class SequencerService implements OnModuleDestroy {
   /** A DJ clip synthesized ahead of the boundary that will consume it. */
   private djPrefetch?: Promise<string | null>;
   private prefetchTimer?: NodeJS.Timeout;
+  /** The prefetch's resolved result, set once synthesis finishes (path/null). */
+  private djReady?: string | null;
 
   private onChunk: (chunk: Buffer) => void = () => {};
 
@@ -163,10 +165,10 @@ export class SequencerService implements OnModuleDestroy {
   private async playNext(): Promise<void> {
     if (this.stopping || !this.encoder) return;
 
-    const item = await this.nextItem();
+    const item = this.nextItem();
     if (this.stopping || !this.encoder) return;
     if (!item) {
-      // A due DJ clip soft-failed; advance to a song on the next tick.
+      // A due DJ clip wasn't ready (skipped); advance to a song on the next tick.
       setImmediate(() => void this.playNext());
       return;
     }
@@ -240,10 +242,11 @@ export class SequencerService implements OnModuleDestroy {
   /**
    * Pick the next item. Songs cycle in order; after every `everyNSongs` songs a
    * DJ time-check is inserted — either as its own segment (`overlap` off, plays
-   * back-to-back) or fused onto the upcoming song's tail (`overlap` on). Returns
-   * `null` when a due back-to-back DJ clip fails (soft-fail → play a song).
+   * back-to-back) or fused onto the upcoming song's tail (`overlap` on). Never
+   * blocks on TTS: returns `null` when a due back-to-back clip isn't ready yet
+   * (→ skip to a song), so the music never stalls waiting for synthesis.
    */
-  private async nextItem(): Promise<Item | null> {
+  private nextItem(): Item | null {
     // Insert a half-second (configurable) of silence between every item, so a
     // song, the time-check, and the next song are cleanly separated rather than
     // butting together (or overlapping). Alternates with real items.
@@ -256,7 +259,7 @@ export class SequencerService implements OnModuleDestroy {
     // Back-to-back DJ segment queued from a previous song.
     if (this.pendingDj) {
       this.pendingDj = false;
-      const clip = await this.takeDj();
+      const clip = this.takeReadyDj();
       return clip ? { kind: 'dj', path: clip } : null;
     }
 
@@ -269,9 +272,9 @@ export class SequencerService implements OnModuleDestroy {
       this.songsSinceDj = 0;
       if (this.dj.overlap) {
         // II.3: talk over this song's tail. The clip was prefetched during the
-        // previous song (see nextSongIsOverlayDue); takeDj returns it, or
-        // synthesizes inline as a fallback. A soft-fail (null) → no talk-over.
-        const clip = await this.takeDj();
+        // previous song (see nextSongIsOverlayDue); takeReadyDj returns it if
+        // ready, else undefined → the song just plays without a talk-over.
+        const clip = this.takeReadyDj();
         return { kind: 'song', path, talkover: clip ?? undefined };
       }
       // II.2: the DJ speaks as its own segment after this song. The clip is
@@ -295,36 +298,51 @@ export class SequencerService implements OnModuleDestroy {
     );
   }
 
-  /** Return the prefetched clip if one is ready/in-flight, else synth inline. */
-  private takeDj(): Promise<string | null> {
-    const clip = this.djPrefetch ?? this.dj.nextInterstitial();
-    this.djPrefetch = undefined;
+  /**
+   * The prefetched DJ clip **only if synthesis already finished**, else `null`.
+   * Never blocks: if the clip isn't ready at the boundary (cold host / CPU
+   * spike), we skip the time-check this cycle rather than stalling the music
+   * while TTS finishes — the pause-before-the-time is worse than a missed check.
+   * With the per-minute cache warming in {@link DjService}, the prefetch is
+   * almost always a cache hit, so this rarely skips.
+   */
+  private takeReadyDj(): string | null {
+    const clip = this.djReady ?? null;
+    this.djReady = undefined;
+    this.djPrefetch = undefined; // discard any still-in-flight synth
     return clip;
   }
 
   /**
    * Schedule the next DJ clip to be synthesized `prefetchLeadSec` before `song`
-   * ends, so it's ready at the boundary with no silence gap. If the song can't
-   * be probed or is shorter than the lead, the clip is simply synthesized inline
-   * at the boundary (via {@link takeDj}) — correct, just without the head start.
+   * ends, so it's ready at the boundary. The result is stashed in `djReady` the
+   * moment synthesis resolves; {@link takeReadyDj} consumes it without blocking.
+   * If the song can't be probed or is shorter than the lead, we just don't get a
+   * head start (the boundary may skip the check that cycle).
    */
   private schedulePrefetch(song: string): void {
-    if (this.djPrefetch) return; // already prefetching for this boundary
+    if (this.djPrefetch || this.djReady !== undefined) return;
     this.clearPrefetchTimer();
     this.probeDurationSec(song)
       .then((dur) => {
-        if (this.stopping || this.djPrefetch) return;
+        if (this.stopping || this.djPrefetch || this.djReady !== undefined) {
+          return;
+        }
         const delayMs = Math.max(
           0,
           (dur - this.config.dj.prefetchLeadSec) * 1000,
         );
         this.prefetchTimer = setTimeout(() => {
           if (this.stopping || this.djPrefetch) return;
-          this.djPrefetch = this.dj.nextInterstitial();
+          const pending = this.dj.nextInterstitial();
+          this.djPrefetch = pending;
+          void pending.then((clip) => {
+            if (this.djPrefetch === pending) this.djReady = clip;
+          });
         }, delayMs);
       })
       .catch(() => {
-        /* can't probe → no prefetch; takeDj falls back to inline synth */
+        /* can't probe → no prefetch; boundary may skip the check this cycle */
       });
   }
 
@@ -335,10 +353,11 @@ export class SequencerService implements OnModuleDestroy {
     }
   }
 
-  /** Drop any pending prefetch (timer + in-flight clip). */
+  /** Drop any pending prefetch (timer + in-flight clip + resolved result). */
   private clearPrefetch(): void {
     this.clearPrefetchTimer();
     this.djPrefetch = undefined;
+    this.djReady = undefined;
   }
 
   /**
