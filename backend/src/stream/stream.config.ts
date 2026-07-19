@@ -39,7 +39,11 @@ export interface StreamConfig {
     enabled: boolean;
     /** The DJ speaks once every N songs. */
     everyNSongs: number;
-    /** Talk OVER the song's fading tail (ducking) vs back-to-back after it. */
+    /**
+     * Talk OVER the song's fading tail (ducking) vs back-to-back after it.
+     * Defaults to `false` (back-to-back) so a song's tail is never ducked
+     * unless overlap is explicitly opted into.
+     */
     overlap: boolean;
     /** Seconds of silence inserted between every item; 0 = seamless back-to-back. */
     gapSec: number;
@@ -81,7 +85,7 @@ export function loadStreamConfig(): StreamConfig {
     dj: {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
-      overlap: (process.env.DJ_OVERLAP ?? 'true') !== 'false',
+      overlap: (process.env.DJ_OVERLAP ?? 'false') === 'true',
       gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
       prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 3)),
