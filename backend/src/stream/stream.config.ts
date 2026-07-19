@@ -41,8 +41,17 @@ export interface StreamConfig {
     everyNSongs: number;
     /** Talk OVER the song's fading tail (ducking) vs back-to-back after it. */
     overlap: boolean;
+    /** Seconds of silence inserted between every item; 0 = seamless back-to-back. */
+    gapSec: number;
     /** Seconds of music-only outro left after the DJ voice ends (overlap mode). */
     overlapTailPadSec: number;
+    /**
+     * Generate-ahead lead (seconds): synthesize the next DJ clip this many
+     * seconds before the preceding song ends, so it's ready at the boundary and
+     * no silence gap forms while TTS runs. Kept small so a time-check stays
+     * accurate to the minute (a large lead would announce a stale time).
+     */
+    prefetchLeadSec: number;
     /** Which TTS engine to bind: 'espeak' (default) or 'piper'. */
     ttsEngine: string;
     /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
@@ -73,7 +82,9 @@ export function loadStreamConfig(): StreamConfig {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
       overlap: (process.env.DJ_OVERLAP ?? 'true') !== 'false',
+      gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
+      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 3)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
         process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-amy-medium.onnx',

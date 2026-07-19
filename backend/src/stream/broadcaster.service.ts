@@ -14,6 +14,10 @@ import { SequencerService } from './dj/sequencer.service';
 export interface Listener {
   write(chunk: Buffer): boolean;
   destroyed?: boolean;
+  /** Bytes currently buffered in the socket (Node stream `writableLength`). */
+  writableLength?: number;
+  /** Close the connection (Node stream `end`). */
+  end?(): void;
 }
 
 /**
@@ -30,6 +34,14 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcasterService.name);
   private readonly config: StreamConfig = loadStreamConfig();
   private readonly listeners = new Set<Listener>();
+
+  /**
+   * Max bytes we let queue in one listener's socket before dropping them. The
+   * stream is live and shared — we can't slow it for one slow client — so a
+   * listener that falls this far behind (~1MB ≈ 60s at 128kbps) is disconnected
+   * to bound memory; they can reconnect and rejoin live.
+   */
+  private static readonly MAX_BACKLOG_BYTES = 1024 * 1024;
 
   constructor(private readonly sequencer: SequencerService) {}
 
@@ -64,11 +76,27 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** Push one chunk to every listener, pruning any that have gone away. */
+  /**
+   * Push one chunk to every listener, pruning any that have gone away or fallen
+   * too far behind. Ignoring socket backpressure would let a slow client's buffer
+   * grow without bound, so a listener past {@link MAX_BACKLOG_BYTES} is dropped.
+   */
   private broadcast(chunk: Buffer): void {
     for (const listener of this.listeners) {
       if (listener.destroyed) {
         this.listeners.delete(listener);
+        continue;
+      }
+      if (
+        (listener.writableLength ?? 0) > BroadcasterService.MAX_BACKLOG_BYTES
+      ) {
+        this.logger.warn('Listener too far behind; dropping to bound memory');
+        this.listeners.delete(listener);
+        try {
+          listener.end?.();
+        } catch {
+          /* already gone */
+        }
         continue;
       }
       try {

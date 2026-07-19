@@ -12,17 +12,27 @@ export interface SequencerHooks {
   onChunk: (chunk: Buffer) => void;
 }
 
-type Item = { kind: 'song' | 'dj'; path: string; talkover?: string };
+type Item =
+  | { kind: 'song'; path: string; talkover?: string }
+  | { kind: 'dj'; path: string }
+  | { kind: 'gap' };
 
 /**
  * The broadcast engine.
  *
- * One long-lived **encoder** ffmpeg reads raw PCM from stdin and emits a single
- * continuous MP3 (fanned out to listeners unchanged — same shared playhead as
- * Phase I). A **sequencer** plays items one at a time: for each item it spawns a
- * short-lived **decoder** ffmpeg (`-re` real-time paced) whose PCM is piped into
- * the encoder's stdin with `{ end: false }`. Between songs it injects a DJ clip.
- * Swapping the PCM *source* is invisible to the encoder, so items join seamlessly.
+ * One long-lived **encoder** ffmpeg reads raw PCM from stdin (paced at real time
+ * with `-re`) and emits a single continuous MP3 (fanned out to listeners
+ * unchanged — same shared playhead as Phase I). A **sequencer** plays items one
+ * at a time: for each item it spawns a short-lived **decoder** ffmpeg that
+ * decodes flat-out; its PCM is piped into the encoder's stdin with
+ * `{ end: false }`, and the encoder's real-time consumption backpressures the
+ * decoder to match. Between songs it injects a DJ clip. Swapping the PCM *source*
+ * is invisible to the encoder, so items join seamlessly.
+ *
+ * **Generate-ahead:** the DJ clip needed at a boundary is synthesized *during*
+ * the preceding song (a timer fires `prefetchLeadSec` before the song ends), so
+ * the clip is ready when the boundary arrives and no silence gap forms while TTS
+ * runs. The lead is kept small so a time-check stays accurate to the minute.
  */
 @Injectable()
 export class SequencerService implements OnModuleDestroy {
@@ -38,6 +48,12 @@ export class SequencerService implements OnModuleDestroy {
   private songIndex = 0;
   private songsSinceDj = 0;
   private pendingDj = false;
+  /** Guards the inter-item silence so gaps and real items alternate. */
+  private lastWasGap = true;
+
+  /** A DJ clip synthesized ahead of the boundary that will consume it. */
+  private djPrefetch?: Promise<string | null>;
+  private prefetchTimer?: NodeJS.Timeout;
 
   private onChunk: (chunk: Buffer) => void = () => {};
 
@@ -86,17 +102,24 @@ export class SequencerService implements OnModuleDestroy {
     }
     this.logger.log(
       `Broadcasting ${this.songs.length} track(s) from ${this.config.mediaDir}` +
-        (this.dj.enabled ? ` with DJ every ${this.dj.everyNSongs} song(s)` : ''),
+        (this.dj.enabled
+          ? ` with DJ every ${this.dj.everyNSongs} song(s)`
+          : ''),
     );
 
-    // Persistent encoder: raw PCM stdin → continuous MP3 stdout. No -re: it
-    // drains PCM as fast as the (real-time-paced) decoder supplies it.
+    // Persistent encoder: raw PCM stdin → continuous MP3 stdout. `-re` on the
+    // PCM input makes THIS the single real-time pacer for the whole broadcast:
+    // it consumes PCM at exactly wall-clock rate, and pipe backpressure throttles
+    // the (unpaced) decoders to match. One pacer means no drift — decoders no
+    // longer each carry `-re` (whose per-item startup burst made the stream run
+    // ahead of real time when items are short).
     const encoder = spawn(
       this.config.ffmpegPath,
       [
         '-hide_banner',
         '-loglevel',
         'error',
+        '-re',
         '-f',
         PCM.format,
         '-ar',
@@ -128,6 +151,7 @@ export class SequencerService implements OnModuleDestroy {
       if (this.stopping) return;
       this.logger.warn(`encoder exited (code ${code}); restarting`);
       this.killDecoder();
+      this.clearPrefetch();
       this.encoder = undefined;
       this.scheduleRestart();
     });
@@ -147,11 +171,14 @@ export class SequencerService implements OnModuleDestroy {
       return;
     }
 
-    // Build the decoder command. A song with a `talkover` clip is played through
-    // a ducking filtergraph (song + DJ voice over its tail); everything else is
-    // a plain decode. talkoverArgs may await ffprobe, so re-check state after.
+    // Build the decoder command. A `gap` is real-time-paced silence between
+    // items; a song with a `talkover` clip is played through a ducking
+    // filtergraph (song + DJ voice over its tail); everything else is a plain
+    // decode. talkoverArgs may await ffprobe, so re-check state after.
     let args: string[];
-    if (item.kind === 'song' && item.talkover) {
+    if (item.kind === 'gap') {
+      args = this.silenceDecoderArgs();
+    } else if (item.kind === 'song' && item.talkover) {
       args =
         (await this.talkoverArgs(item.path, item.talkover)) ??
         this.plainDecoderArgs(item.path);
@@ -165,6 +192,8 @@ export class SequencerService implements OnModuleDestroy {
     if (item.kind === 'song') {
       const name = item.path.split('/').pop();
       this.logger.log(`▶  ${name}${item.talkover ? ' (DJ over tail)' : ''}`);
+    } else if (item.kind === 'gap') {
+      this.logger.debug(`··· gap ${this.config.dj.gapSec}s`);
     }
 
     const decoder = spawn(this.config.ffmpegPath, args, {
@@ -178,19 +207,34 @@ export class SequencerService implements OnModuleDestroy {
       this.logger.debug(`decoder: ${chunk.toString().trim()}`),
     );
 
+    // Generate-ahead: if the boundary at the end of this song will consume a DJ
+    // clip (a back-to-back segment queued via pendingDj, or the next song is due
+    // to be talked over), synthesize it during this song's playout so it's ready.
+    if (
+      item.kind === 'song' &&
+      (this.pendingDj || this.nextSongIsOverlayDue())
+    ) {
+      this.schedulePrefetch(item.path);
+    }
+
     let advanced = false;
     const advance = () => {
       if (advanced) return; // a decoder may emit both 'error' and 'close'
       advanced = true;
+      this.clearPrefetchTimer();
       this.decoder = undefined;
       if (this.stopping) return;
       setImmediate(() => void this.playNext());
     };
     decoder.on('error', (err) => {
-      this.logger.warn(`decoder error (${item.path}): ${err.message}`);
+      const label = item.kind === 'gap' ? 'gap' : item.path;
+      this.logger.warn(`decoder error (${label}): ${err.message}`);
       advance();
     });
-    decoder.on('close', () => advance());
+    decoder.on('close', (code) => {
+      if (code) this.logger.warn(`decoder ${item.kind} exited code ${code}`);
+      advance();
+    });
   }
 
   /**
@@ -200,10 +244,19 @@ export class SequencerService implements OnModuleDestroy {
    * `null` when a due back-to-back DJ clip fails (soft-fail → play a song).
    */
   private async nextItem(): Promise<Item | null> {
+    // Insert a half-second (configurable) of silence between every item, so a
+    // song, the time-check, and the next song are cleanly separated rather than
+    // butting together (or overlapping). Alternates with real items.
+    if (this.config.dj.gapSec > 0 && !this.lastWasGap) {
+      this.lastWasGap = true;
+      return { kind: 'gap' };
+    }
+    this.lastWasGap = false;
+
     // Back-to-back DJ segment queued from a previous song.
     if (this.pendingDj) {
       this.pendingDj = false;
-      const clip = await this.dj.nextInterstitial();
+      const clip = await this.takeDj();
       return clip ? { kind: 'dj', path: clip } : null;
     }
 
@@ -215,24 +268,110 @@ export class SequencerService implements OnModuleDestroy {
     if (djDue) {
       this.songsSinceDj = 0;
       if (this.dj.overlap) {
-        // II.3: generate the clip now and talk over this song's tail. A
-        // soft-fail (null) just means the song plays without a talk-over.
-        const clip = await this.dj.nextInterstitial();
+        // II.3: talk over this song's tail. The clip was prefetched during the
+        // previous song (see nextSongIsOverlayDue); takeDj returns it, or
+        // synthesizes inline as a fallback. A soft-fail (null) → no talk-over.
+        const clip = await this.takeDj();
         return { kind: 'song', path, talkover: clip ?? undefined };
       }
-      // II.2: the DJ speaks as its own segment after this song.
+      // II.2: the DJ speaks as its own segment after this song. The clip is
+      // prefetched during this song and consumed by the pendingDj branch above.
       this.pendingDj = true;
     }
     return { kind: 'song', path };
   }
 
-  /** Plain real-time decode of one file to the shared PCM contract. */
+  /**
+   * Whether the *next* song will be due for a DJ talk-over (overlap mode). Used
+   * to decide, while a song is decoding, whether to prefetch the clip that the
+   * next song will talk over. Mirrors the cadence check in {@link nextItem}: the
+   * next song increments `songsSinceDj` to `songsSinceDj + 1`.
+   */
+  private nextSongIsOverlayDue(): boolean {
+    return (
+      this.dj.enabled &&
+      this.dj.overlap &&
+      this.songsSinceDj + 1 >= this.dj.everyNSongs
+    );
+  }
+
+  /** Return the prefetched clip if one is ready/in-flight, else synth inline. */
+  private takeDj(): Promise<string | null> {
+    const clip = this.djPrefetch ?? this.dj.nextInterstitial();
+    this.djPrefetch = undefined;
+    return clip;
+  }
+
+  /**
+   * Schedule the next DJ clip to be synthesized `prefetchLeadSec` before `song`
+   * ends, so it's ready at the boundary with no silence gap. If the song can't
+   * be probed or is shorter than the lead, the clip is simply synthesized inline
+   * at the boundary (via {@link takeDj}) — correct, just without the head start.
+   */
+  private schedulePrefetch(song: string): void {
+    if (this.djPrefetch) return; // already prefetching for this boundary
+    this.clearPrefetchTimer();
+    this.probeDurationSec(song)
+      .then((dur) => {
+        if (this.stopping || this.djPrefetch) return;
+        const delayMs = Math.max(
+          0,
+          (dur - this.config.dj.prefetchLeadSec) * 1000,
+        );
+        this.prefetchTimer = setTimeout(() => {
+          if (this.stopping || this.djPrefetch) return;
+          this.djPrefetch = this.dj.nextInterstitial();
+        }, delayMs);
+      })
+      .catch(() => {
+        /* can't probe → no prefetch; takeDj falls back to inline synth */
+      });
+  }
+
+  private clearPrefetchTimer(): void {
+    if (this.prefetchTimer) {
+      clearTimeout(this.prefetchTimer);
+      this.prefetchTimer = undefined;
+    }
+  }
+
+  /** Drop any pending prefetch (timer + in-flight clip). */
+  private clearPrefetch(): void {
+    this.clearPrefetchTimer();
+    this.djPrefetch = undefined;
+  }
+
+  /**
+   * `gapSec` seconds of silence, in the shared PCM contract. Generated flat-out;
+   * the encoder's `-re` paces it to real wall-clock time like any other item.
+   */
+  private silenceDecoderArgs(): string[] {
+    return [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      `anullsrc=r=${this.config.sampleRate}:cl=stereo`,
+      '-t',
+      String(this.config.dj.gapSec),
+      '-f',
+      PCM.format,
+      '-ar',
+      String(this.config.sampleRate),
+      '-ac',
+      String(PCM.channels),
+      'pipe:1',
+    ];
+  }
+
+  /** Plain decode of one file to the shared PCM contract (encoder paces it). */
   private plainDecoderArgs(path: string): string[] {
     return [
       '-hide_banner',
       '-loglevel',
       'error',
-      '-re',
       '-i',
       path,
       '-vn',
@@ -279,7 +418,6 @@ export class SequencerService implements OnModuleDestroy {
         '-hide_banner',
         '-loglevel',
         'error',
-        '-re',
         '-i',
         song,
         '-i',
@@ -331,7 +469,9 @@ export class SequencerService implements OnModuleDestroy {
         if (code === 0 && Number.isFinite(seconds) && seconds > 0) {
           resolve(seconds);
         } else {
-          reject(new Error(`ffprobe failed (${code}): ${err.trim() || out.trim()}`));
+          reject(
+            new Error(`ffprobe failed (${code}): ${err.trim() || out.trim()}`),
+          );
         }
       });
     });
@@ -354,6 +494,7 @@ export class SequencerService implements OnModuleDestroy {
   private stop(): void {
     this.stopping = true;
     if (this.restartTimer) clearTimeout(this.restartTimer);
+    this.clearPrefetch();
     this.killDecoder();
     this.encoder?.stdin.end();
     this.encoder?.kill('SIGTERM');

@@ -36,7 +36,10 @@ services:
       - key: DJ_EVERY_N_SONGS
         value: "1"
       - key: DJ_OVERLAP
-        value: "true"
+        value: "false"
+      # Half a second of silence between every item (song ↔ time-check ↔ song).
+      - key: DJ_GAP
+        value: "0.5"
 
   - type: web
     name: kindfm-frontend
