@@ -1,9 +1,10 @@
 /**
- * Pure time-formatting helpers for the DJ time-check.
+ * Pure time-formatting helper for the DJ time-check.
  *
  * No I/O, no ffmpeg, no TTS — just turns a moment + timezone into the phrase the
- * DJ speaks, and a stable per-minute key used to cache the synthesized clip.
- * Trivially unit-testable.
+ * DJ speaks. Trivially unit-testable. Because the phrase only changes once per
+ * minute, the TTS layer's content-addressed cache (keyed on this string)
+ * synthesizes a given time-check at most once per minute.
  */
 
 /**
@@ -12,15 +13,6 @@
  */
 export function formatTimePhrase(now: Date, timeZone: string): string {
   return `The time is ${formatClock(now, timeZone)}.`;
-}
-
-/**
- * A stable per-minute key (the clock string, e.g. `"3:42 PM"`). Because it only
- * changes once per minute, using it as the TTS cache key means we synthesize a
- * given time-check at most once per minute and reuse it across rotations.
- */
-export function minuteKey(now: Date, timeZone: string): string {
-  return formatClock(now, timeZone);
 }
 
 /**
