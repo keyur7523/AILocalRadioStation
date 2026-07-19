@@ -91,7 +91,7 @@ export function loadStreamConfig(): StreamConfig {
       prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 3)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
-        process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-amy-medium.onnx',
+        process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-medium.onnx',
       cacheDir: process.env.DJ_CACHE_DIR ?? join(tmpdir(), 'radio-dj-clips'),
     },
   };
