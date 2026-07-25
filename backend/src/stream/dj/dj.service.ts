@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { loadStreamConfig, type StreamConfig } from '../stream.config';
+import { StationConfigService } from '../station-config.service';
 import { TTS_SERVICE, type TtsService } from '../tts/tts.interface';
 import { formatTimePhrase } from './time-announcer';
 
@@ -43,13 +44,16 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   private warmTimer?: NodeJS.Timeout;
   private warmedPhrase?: string;
 
-  constructor(@Inject(TTS_SERVICE) private readonly tts: TtsService) {}
+  constructor(
+    @Inject(TTS_SERVICE) private readonly tts: TtsService,
+    private readonly station: StationConfigService,
+  ) {}
 
   /** Start keeping the current (offset-adjusted) minute's clip warm. */
   onModuleInit(): void {
     if (this.config.dj.enabled) {
       this.logger.log(
-        `DJ enabled — cache-warming time-checks (TZ=${this.config.station.timeZone}, ` +
+        `DJ enabled — cache-warming time-checks (TZ=${this.station.timeZone}, ` +
           `time-offset ${this.config.dj.timeOffsetSec}s)`,
       );
       void this.warm();
@@ -94,7 +98,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
     if (!this.config.dj.enabled) return null;
     const phrase = formatTimePhrase(
       this.announcedTime(),
-      this.config.station.timeZone,
+      this.station.timeZone,
     );
     try {
       const path = await withTimeout(
@@ -136,7 +140,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   private async warm(): Promise<void> {
     const phrase = formatTimePhrase(
       this.announcedTime(),
-      this.config.station.timeZone,
+      this.station.timeZone,
     );
     if (phrase === this.warmedPhrase) return; // already cached this minute
     try {

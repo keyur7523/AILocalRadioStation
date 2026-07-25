@@ -4,8 +4,8 @@ import {
   OnModuleInit,
   OnModuleDestroy,
 } from '@nestjs/common';
-import { loadStreamConfig, type StreamConfig } from './stream.config';
 import { SequencerService } from './dj/sequencer.service';
+import { StationConfigService } from './station-config.service';
 
 /**
  * Minimal contract for a connected listener. In practice this is an Express
@@ -32,7 +32,6 @@ export interface Listener {
 @Injectable()
 export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(BroadcasterService.name);
-  private readonly config: StreamConfig = loadStreamConfig();
   private readonly listeners = new Set<Listener>();
 
   /**
@@ -43,7 +42,10 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
    */
   private static readonly MAX_BACKLOG_BYTES = 1024 * 1024;
 
-  constructor(private readonly sequencer: SequencerService) {}
+  constructor(
+    private readonly sequencer: SequencerService,
+    private readonly station: StationConfigService,
+  ) {}
 
   onModuleInit(): void {
     this.sequencer.start({ onChunk: (chunk) => this.broadcast(chunk) });
@@ -57,7 +59,7 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
   /** Station identity + live listener count, for the UI and metadata. */
   getStationInfo() {
     return {
-      ...this.config.station,
+      ...this.station.get(),
       listeners: this.listeners.size,
       online: this.sequencer.online,
     };
