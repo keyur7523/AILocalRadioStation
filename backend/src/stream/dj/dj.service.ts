@@ -45,16 +45,27 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
 
   constructor(@Inject(TTS_SERVICE) private readonly tts: TtsService) {}
 
-  /** Start keeping the current minute's clip warm in the TTS cache. */
+  /** Start keeping the current (offset-adjusted) minute's clip warm. */
   onModuleInit(): void {
     if (this.config.dj.enabled) {
       this.logger.log(
-        `DJ enabled — cache-warming the current minute's time-check (TZ=${this.config.station.timeZone})`,
+        `DJ enabled — cache-warming time-checks (TZ=${this.config.station.timeZone}, ` +
+          `time-offset ${this.config.dj.timeOffsetSec}s)`,
       );
-      this.scheduleWarm(0);
+      void this.warm();
+      this.scheduleWarm();
     } else {
       this.logger.log('DJ disabled — songs only');
     }
+  }
+
+  /**
+   * The time we announce: now shifted forward by `timeOffsetSec` to compensate
+   * for pipeline + player latency, so the spoken time matches the listener's
+   * clock when they actually hear the clip (not when it was synthesized).
+   */
+  private announcedTime(): Date {
+    return new Date(Date.now() + this.config.dj.timeOffsetSec * 1000);
   }
 
   onModuleDestroy(): void {
@@ -81,7 +92,10 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
    */
   async nextInterstitial(): Promise<string | null> {
     if (!this.config.dj.enabled) return null;
-    const phrase = formatTimePhrase(new Date(), this.config.station.timeZone);
+    const phrase = formatTimePhrase(
+      this.announcedTime(),
+      this.config.station.timeZone,
+    );
     try {
       const path = await withTimeout(
         this.tts.synthesize(phrase),
@@ -96,26 +110,39 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pre-synthesize the current minute's time-check into the TTS cache so that
+   * Pre-synthesize the announced-minute time-check into the TTS cache so that
    * when a boundary needs it, it's already a cache hit — no synth on the hot
-   * path, which is what caused the occasional pre-announcement lag on a busy /
-   * cold host. Re-arms just after each minute rolls over.
+   * path. Re-arms at each **announced-minute** flip, which (with the offset)
+   * lands `timeOffsetSec` before each wall-clock minute.
    */
-  private scheduleWarm(delayMs: number): void {
+  private scheduleWarm(): void {
     this.warmTimer = setTimeout(() => {
       void this.warm();
-      const msToNextMinute = 60000 - (Date.now() % 60000);
-      this.scheduleWarm(msToNextMinute + 100);
-    }, delayMs);
+      this.scheduleWarm();
+    }, this.msToNextFlip());
+  }
+
+  /** ms until the announced (offset-adjusted) minute next rolls over. */
+  private msToNextFlip(): number {
+    const offsetMs = this.config.dj.timeOffsetSec * 1000;
+    // ms-into-the-wall-minute at which the announced minute flips.
+    const flipAt = (60000 - (offsetMs % 60000)) % 60000;
+    const nowInMin = Date.now() % 60000;
+    const ms = (((flipAt - nowInMin) % 60000) + 60000) % 60000;
+    // At the flip moment ms is 0; wait a full minute rather than tight-looping.
+    return ms || 60000;
   }
 
   private async warm(): Promise<void> {
-    const phrase = formatTimePhrase(new Date(), this.config.station.timeZone);
+    const phrase = formatTimePhrase(
+      this.announcedTime(),
+      this.config.station.timeZone,
+    );
     if (phrase === this.warmedPhrase) return; // already cached this minute
     try {
       await this.tts.synthesize(phrase);
       this.warmedPhrase = phrase;
-      this.logger.log(`🔥 warmed cache for new minute: "${phrase}"`);
+      this.logger.log(`🔥 warmed cache for upcoming minute: "${phrase}"`);
     } catch (err) {
       this.logger.warn(`cache-warm failed: ${(err as Error).message}`);
     }

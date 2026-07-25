@@ -56,6 +56,12 @@ export interface StreamConfig {
      * accurate to the minute (a large lead would announce a stale time).
      */
     prefetchLeadSec: number;
+    /**
+     * Seconds to add to the announced time to compensate for pipeline + player
+     * latency (generate-ahead + stream buffering), so the spoken time matches
+     * what the listener's clock reads when they actually hear it.
+     */
+    timeOffsetSec: number;
     /** Which TTS engine to bind: 'espeak' (default) or 'piper'. */
     ttsEngine: string;
     /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
@@ -77,7 +83,7 @@ export function describeConfig(c: StreamConfig): string[] {
     `Audio   : ${c.bitrate} @ ${c.sampleRate}Hz · ffmpeg=${c.ffmpegPath} · media=${c.mediaDir}`,
     `DJ      : ${c.dj.enabled ? 'ON' : 'OFF'} · every ${c.dj.everyNSongs} song(s) · ` +
       `${c.dj.overlap ? 'overlap/duck' : 'back-to-back'} · gap ${c.dj.gapSec}s · ` +
-      `prefetch-lead ${c.dj.prefetchLeadSec}s`,
+      `prefetch-lead ${c.dj.prefetchLeadSec}s · time-offset ${c.dj.timeOffsetSec}s`,
     `TTS     : ${c.dj.ttsEngine}` +
       (c.dj.ttsEngine === 'piper' ? ` · voice=${c.dj.voiceModelPath}` : '') +
       ` · cache=${c.dj.cacheDir}`,
@@ -108,6 +114,7 @@ export function loadStreamConfig(): StreamConfig {
       gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
       prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 3)),
+      timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 10)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
         process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-medium.onnx',
