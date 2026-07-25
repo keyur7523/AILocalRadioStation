@@ -37,13 +37,23 @@ export abstract class BaseTtsService implements TtsService {
       .update(`${this.engine}:${this.variant}:${text}`)
       .digest('hex')
       .slice(0, 16);
-    const outPath = join(this.cacheDir, `${this.engine}-${key}.${this.extension}`);
+    const outPath = join(
+      this.cacheDir,
+      `${this.engine}-${key}.${this.extension}`,
+    );
 
-    if (existsSync(outPath)) return outPath;
+    if (existsSync(outPath)) {
+      this.logger.verbose(`cache hit: "${text}"`);
+      return outPath;
+    }
 
     const pending = this.inFlight.get(outPath);
-    if (pending) return pending;
+    if (pending) {
+      this.logger.verbose(`joining in-flight synth: "${text}"`);
+      return pending;
+    }
 
+    this.logger.debug(`cache miss — synthesizing "${text}"…`);
     const startedAt = Date.now();
     const task = this.render(text, outPath)
       .then(() => {

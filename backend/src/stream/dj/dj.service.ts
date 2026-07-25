@@ -47,7 +47,14 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
 
   /** Start keeping the current minute's clip warm in the TTS cache. */
   onModuleInit(): void {
-    if (this.config.dj.enabled) this.scheduleWarm(0);
+    if (this.config.dj.enabled) {
+      this.logger.log(
+        `DJ enabled — cache-warming the current minute's time-check (TZ=${this.config.station.timeZone})`,
+      );
+      this.scheduleWarm(0);
+    } else {
+      this.logger.log('DJ disabled — songs only');
+    }
   }
 
   onModuleDestroy(): void {
@@ -108,9 +115,9 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.tts.synthesize(phrase);
       this.warmedPhrase = phrase;
-      this.logger.debug(`warmed clip: "${phrase}"`);
-    } catch {
-      /* ignore — the boundary path will retry / soft-fail */
+      this.logger.log(`🔥 warmed cache for new minute: "${phrase}"`);
+    } catch (err) {
+      this.logger.warn(`cache-warm failed: ${(err as Error).message}`);
     }
   }
 }

@@ -3,7 +3,11 @@ import { spawn, type ChildProcessByStdio } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
-import { loadStreamConfig, type StreamConfig } from '../stream.config';
+import {
+  describeConfig,
+  loadStreamConfig,
+  type StreamConfig,
+} from '../stream.config';
 import { DjService } from './dj.service';
 import { PCM } from './pcm.const';
 
@@ -64,6 +68,9 @@ export class SequencerService implements OnModuleDestroy {
   start(hooks: SequencerHooks): void {
     this.onChunk = hooks.onChunk;
     this.stopping = false;
+    this.logger.log('Starting broadcast engine — effective config:');
+    for (const line of describeConfig(this.config))
+      this.logger.log(`  ${line}`);
     this.launch();
   }
 
@@ -108,6 +115,7 @@ export class SequencerService implements OnModuleDestroy {
           ? ` with DJ every ${this.dj.everyNSongs} song(s)`
           : ''),
     );
+    for (const s of this.songs) this.logger.verbose(`  track: ${s}`);
 
     // Persistent encoder: raw PCM stdin → continuous MP3 stdout. `-re` on the
     // PCM input makes THIS the single real-time pacer for the whole broadcast:
@@ -141,6 +149,9 @@ export class SequencerService implements OnModuleDestroy {
       { stdio: ['pipe', 'pipe', 'pipe'] },
     );
     this.encoder = encoder;
+    this.logger.log(
+      `Encoder up (pid ${encoder.pid}) — ${this.config.bitrate} MP3, single real-time pacer`,
+    );
 
     encoder.stdout.on('data', (chunk: Buffer) => this.onChunk(chunk));
     encoder.stderr.on('data', (chunk: Buffer) =>
@@ -158,7 +169,20 @@ export class SequencerService implements OnModuleDestroy {
       this.scheduleRestart();
     });
 
-    void this.playNext();
+    this.tick();
+  }
+
+  /**
+   * Run one play step, catching any unexpected error so the item loop never dies
+   * silently. On a crash we kill the encoder — its `close` handler runs the clean
+   * restart path (relaunch after a delay) — so the stream self-heals.
+   */
+  private tick(): void {
+    this.playNext().catch((err) => {
+      this.logger.error(`play loop crashed: ${(err as Error).message}`);
+      if (this.encoder) this.encoder.kill('SIGKILL');
+      else this.scheduleRestart();
+    });
   }
 
   /** Play one item, then schedule the next. One decoder alive at a time. */
@@ -169,7 +193,7 @@ export class SequencerService implements OnModuleDestroy {
     if (this.stopping || !this.encoder) return;
     if (!item) {
       // A due DJ clip wasn't ready (skipped); advance to a song on the next tick.
-      setImmediate(() => void this.playNext());
+      setImmediate(() => this.tick());
       return;
     }
 
@@ -193,15 +217,20 @@ export class SequencerService implements OnModuleDestroy {
 
     if (item.kind === 'song') {
       const name = item.path.split('/').pop();
-      this.logger.log(`▶  ${name}${item.talkover ? ' (DJ over tail)' : ''}`);
+      this.logger.log(
+        `▶  song: ${name}${item.talkover ? ' (DJ over tail)' : ''}`,
+      );
+    } else if (item.kind === 'dj') {
+      this.logger.log(`🎙  time-check on air: ${item.path.split('/').pop()}`);
     } else if (item.kind === 'gap') {
-      this.logger.debug(`··· gap ${this.config.dj.gapSec}s`);
+      this.logger.debug(`···  gap ${this.config.dj.gapSec}s`);
     }
 
     const decoder = spawn(this.config.ffmpegPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.decoder = decoder;
+    this.logger.verbose(`decode ${item.kind} started (pid ${decoder.pid})`);
 
     // { end: false } is load-bearing: never close the encoder's stdin here.
     decoder.stdout.pipe(encoder.stdin, { end: false });
@@ -226,7 +255,7 @@ export class SequencerService implements OnModuleDestroy {
       this.clearPrefetchTimer();
       this.decoder = undefined;
       if (this.stopping) return;
-      setImmediate(() => void this.playNext());
+      setImmediate(() => this.tick());
     };
     decoder.on('error', (err) => {
       const label = item.kind === 'gap' ? 'gap' : item.path;
@@ -235,6 +264,7 @@ export class SequencerService implements OnModuleDestroy {
     });
     decoder.on('close', (code) => {
       if (code) this.logger.warn(`decoder ${item.kind} exited code ${code}`);
+      else this.logger.verbose(`decode ${item.kind} finished`);
       advance();
     });
   }
@@ -260,7 +290,11 @@ export class SequencerService implements OnModuleDestroy {
     if (this.pendingDj) {
       this.pendingDj = false;
       const clip = this.takeReadyDj();
-      return clip ? { kind: 'dj', path: clip } : null;
+      if (!clip) {
+        this.logger.log('⤳  time-check skipped (clip not ready in time)');
+        return null;
+      }
+      return { kind: 'dj', path: clip };
     }
 
     const path = this.songs[this.songIndex];
@@ -332,8 +366,12 @@ export class SequencerService implements OnModuleDestroy {
           0,
           (dur - this.config.dj.prefetchLeadSec) * 1000,
         );
+        this.logger.verbose(
+          `DJ prefetch scheduled in ${Math.round(delayMs)}ms (generate-ahead)`,
+        );
         this.prefetchTimer = setTimeout(() => {
           if (this.stopping || this.djPrefetch) return;
+          this.logger.verbose('DJ prefetch firing — synthesizing next clip');
           const pending = this.dj.nextInterstitial();
           this.djPrefetch = pending;
           void pending.then((clip) => {

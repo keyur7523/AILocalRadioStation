@@ -65,6 +65,25 @@ export interface StreamConfig {
   };
 }
 
+/**
+ * Human-readable summary of the effective config, for logging at startup so the
+ * running station's real settings (engine, timezone, cadence, …) are visible in
+ * the logs — invaluable when env vars come from several places (image, blueprint,
+ * dashboard).
+ */
+export function describeConfig(c: StreamConfig): string[] {
+  return [
+    `Station : ${c.station.name} ${c.station.frequency} · ${c.station.city} · TZ=${c.station.timeZone}`,
+    `Audio   : ${c.bitrate} @ ${c.sampleRate}Hz · ffmpeg=${c.ffmpegPath} · media=${c.mediaDir}`,
+    `DJ      : ${c.dj.enabled ? 'ON' : 'OFF'} · every ${c.dj.everyNSongs} song(s) · ` +
+      `${c.dj.overlap ? 'overlap/duck' : 'back-to-back'} · gap ${c.dj.gapSec}s · ` +
+      `prefetch-lead ${c.dj.prefetchLeadSec}s`,
+    `TTS     : ${c.dj.ttsEngine}` +
+      (c.dj.ttsEngine === 'piper' ? ` · voice=${c.dj.voiceModelPath}` : '') +
+      ` · cache=${c.dj.cacheDir}`,
+  ];
+}
+
 export function loadStreamConfig(): StreamConfig {
   return {
     ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
