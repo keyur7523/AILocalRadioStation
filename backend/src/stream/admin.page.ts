@@ -24,12 +24,9 @@ export const ADMIN_HTML = `<!doctype html>
   .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:6px;vertical-align:middle}
   .dot.on{background:#43c463;box-shadow:0 0 8px #43c463}
   h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 13px}
-  .presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}
-  .preset{text-align:left;background:#221d18;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:11px 13px;cursor:pointer;transition:.15s}
-  .preset:hover{border-color:var(--amber);background:#2a231c}
-  .preset.active{border-color:var(--amber);background:#2f2619}
-  .preset .pn{font-weight:600;font-size:14px}
-  .preset .pz{color:var(--muted);font-size:12px;margin-top:2px}
+  .pick{display:grid;gap:7px;font-size:12px;color:var(--muted)}
+  select{appearance:none;-webkit-appearance:none;background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:12px 13px;font-size:15px;cursor:pointer;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f2a93b' d='M6 8 0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+  select:focus{outline:none;border-color:var(--amber)}
   form{display:grid;gap:12px}
   label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
   input{background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px}
@@ -59,8 +56,10 @@ export const ADMIN_HTML = `<!doctype html>
   </div>
 
   <div class="card">
-    <h2>Presets (US time zones)</h2>
-    <div class="presets" id="presets"></div>
+    <h2>Station (US time zones)</h2>
+    <label class="pick">Pick a station — sets the name &amp; the timezone the DJ announces
+      <select id="presetSelect"></select>
+    </label>
   </div>
 
   <div class="card">
@@ -83,30 +82,30 @@ export const ADMIN_HTML = `<!doctype html>
 <script>
   function q(id){return document.getElementById(id)}
   function toast(msg,isErr){var t=q('toast');t.textContent=msg;t.className='toast show'+(isErr?' err':'');setTimeout(function(){t.className='toast'},2600)}
+  var presets=[];
   function renderCurrent(s){
     q('cName').textContent=s.name;
     q('cFreq').textContent=s.frequency?s.frequency+' FM':'';
     q('cMeta').textContent=s.city+' \\u00b7 '+s.timeZone;
     q('dot').className='dot'+(s.online?' on':'');
-    var btns=document.querySelectorAll('.preset');
-    for(var i=0;i<btns.length;i++){
-      var b=btns[i];
-      b.classList.toggle('active',b.getAttribute('data-tz')===s.timeZone&&b.getAttribute('data-name')===s.name);
+    var match='';
+    for(var i=0;i<presets.length;i++){
+      if(presets[i].name===s.name&&presets[i].timeZone===s.timeZone){match=presets[i].id;break}
     }
+    q('presetSelect').value=match;
   }
   function renderPresets(list){
-    var wrap=q('presets');wrap.textContent='';
+    presets=list;
+    var sel=q('presetSelect');sel.textContent='';
+    var custom=document.createElement('option');custom.value='';custom.textContent='\\u2014 custom \\u2014';sel.appendChild(custom);
     for(var i=0;i<list.length;i++){
-      (function(p){
-        var b=document.createElement('button');
-        b.className='preset';b.setAttribute('data-id',p.id);b.setAttribute('data-tz',p.timeZone);b.setAttribute('data-name',p.name);
-        var n=document.createElement('div');n.className='pn';n.textContent=p.name;
-        var z=document.createElement('div');z.className='pz';z.textContent=p.city+' \\u00b7 '+p.timeZone;
-        b.appendChild(n);b.appendChild(z);
-        b.onclick=function(){apply({presetId:p.id},'Switched to '+p.name)};
-        wrap.appendChild(b);
-      })(list[i]);
+      var o=document.createElement('option');o.value=list[i].id;o.textContent=list[i].name+' \\u00b7 '+list[i].timeZone;sel.appendChild(o);
     }
+    sel.onchange=function(){
+      if(!sel.value)return;
+      var p=null;for(var j=0;j<presets.length;j++){if(presets[j].id===sel.value){p=presets[j];break}}
+      apply({presetId:sel.value},'Switched to '+(p?p.name:sel.value));
+    };
   }
   function init(){
     fetch('/admin/config').then(function(r){return r.json()}).then(function(d){
