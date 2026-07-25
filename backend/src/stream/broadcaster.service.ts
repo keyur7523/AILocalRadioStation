@@ -82,28 +82,35 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
    * grow without bound, so a listener past {@link MAX_BACKLOG_BYTES} is dropped.
    */
   private broadcast(chunk: Buffer): void {
-    for (const listener of this.listeners) {
-      if (listener.destroyed) {
-        this.listeners.delete(listener);
-        continue;
-      }
-      if (
-        (listener.writableLength ?? 0) > BroadcasterService.MAX_BACKLOG_BYTES
-      ) {
-        this.logger.warn('Listener too far behind; dropping to bound memory');
-        this.listeners.delete(listener);
-        try {
-          listener.end?.();
-        } catch {
-          /* already gone */
+    // This runs on every encoder MP3 chunk (the hot path). Guard the whole loop
+    // so a throw here can never escape into the encoder's 'data' handler and
+    // take the stream down — worst case we skip one chunk and log it.
+    try {
+      for (const listener of this.listeners) {
+        if (listener.destroyed) {
+          this.listeners.delete(listener);
+          continue;
         }
-        continue;
+        if (
+          (listener.writableLength ?? 0) > BroadcasterService.MAX_BACKLOG_BYTES
+        ) {
+          this.logger.warn('Listener too far behind; dropping to bound memory');
+          this.listeners.delete(listener);
+          try {
+            listener.end?.();
+          } catch {
+            /* already gone */
+          }
+          continue;
+        }
+        try {
+          listener.write(chunk);
+        } catch {
+          this.listeners.delete(listener);
+        }
       }
-      try {
-        listener.write(chunk);
-      } catch {
-        this.listeners.delete(listener);
-      }
+    } catch (err) {
+      this.logger.error(`broadcast error: ${(err as Error).message}`);
     }
   }
 }

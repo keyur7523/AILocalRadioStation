@@ -123,53 +123,60 @@ export class SequencerService implements OnModuleDestroy {
     // the (unpaced) decoders to match. One pacer means no drift — decoders no
     // longer each carry `-re` (whose per-item startup burst made the stream run
     // ahead of real time when items are short).
-    const encoder = spawn(
-      this.config.ffmpegPath,
-      [
-        '-hide_banner',
-        '-loglevel',
-        'error',
-        '-re',
-        '-f',
-        PCM.format,
-        '-ar',
-        String(this.config.sampleRate),
-        '-ac',
-        String(PCM.channels),
-        '-i',
-        'pipe:0',
-        '-c:a',
-        'libmp3lame',
-        '-b:a',
-        this.config.bitrate,
-        '-f',
-        'mp3',
-        'pipe:1',
-      ],
-      { stdio: ['pipe', 'pipe', 'pipe'] },
-    );
-    this.encoder = encoder;
-    this.logger.log(
-      `Encoder up (pid ${encoder.pid}) — ${this.config.bitrate} MP3, single real-time pacer`,
-    );
+    try {
+      const encoder = spawn(
+        this.config.ffmpegPath,
+        [
+          '-hide_banner',
+          '-loglevel',
+          'error',
+          '-re',
+          '-f',
+          PCM.format,
+          '-ar',
+          String(this.config.sampleRate),
+          '-ac',
+          String(PCM.channels),
+          '-i',
+          'pipe:0',
+          '-c:a',
+          'libmp3lame',
+          '-b:a',
+          this.config.bitrate,
+          '-f',
+          'mp3',
+          'pipe:1',
+        ],
+        { stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      this.encoder = encoder;
+      this.logger.log(
+        `Encoder up (pid ${encoder.pid}) — ${this.config.bitrate} MP3, single real-time pacer`,
+      );
 
-    encoder.stdout.on('data', (chunk: Buffer) => this.onChunk(chunk));
-    encoder.stderr.on('data', (chunk: Buffer) =>
-      this.logger.warn(`encoder: ${chunk.toString().trim()}`),
-    );
-    encoder.on('error', (err) =>
-      this.logger.error(`encoder spawn failed: ${err.message}`),
-    );
-    encoder.on('close', (code) => {
-      if (this.stopping) return;
-      this.logger.warn(`encoder exited (code ${code}); restarting`);
-      this.killDecoder();
-      this.clearPrefetch();
-      this.encoder = undefined;
+      encoder.stdout.on('data', (chunk: Buffer) => this.onChunk(chunk));
+      encoder.stderr.on('data', (chunk: Buffer) =>
+        this.logger.warn(`encoder: ${chunk.toString().trim()}`),
+      );
+      encoder.on('error', (err) =>
+        this.logger.error(`encoder spawn failed: ${err.message}`),
+      );
+      encoder.on('close', (code) => {
+        if (this.stopping) return;
+        this.logger.warn(`encoder exited (code ${code}); restarting`);
+        this.killDecoder();
+        this.clearPrefetch();
+        this.encoder = undefined;
+        this.scheduleRestart();
+      });
+
+      this.tick();
+    } catch (err) {
+      this.logger.error(
+        `failed to start encoder: ${(err as Error).message}; retrying`,
+      );
       this.scheduleRestart();
-    });
-
-    this.tick();
+    }
   }
 
   /**
@@ -550,11 +557,15 @@ export class SequencerService implements OnModuleDestroy {
 
   private stop(): void {
     this.stopping = true;
-    if (this.restartTimer) clearTimeout(this.restartTimer);
-    this.clearPrefetch();
-    this.killDecoder();
-    this.encoder?.stdin.end();
-    this.encoder?.kill('SIGTERM');
+    try {
+      if (this.restartTimer) clearTimeout(this.restartTimer);
+      this.clearPrefetch();
+      this.killDecoder();
+      this.encoder?.stdin.end();
+      this.encoder?.kill('SIGTERM');
+    } catch (err) {
+      this.logger.warn(`teardown error: ${(err as Error).message}`);
+    }
     this.encoder = undefined;
   }
 }
