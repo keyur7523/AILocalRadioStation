@@ -3,8 +3,10 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Put,
 } from '@nestjs/common';
+import { ADMIN_HTML } from './admin.page';
 import { StationConfigService } from './station-config.service';
 import type { StationIdentity } from './station-presets';
 
@@ -24,6 +26,13 @@ interface UpdateStationDto extends Partial<StationIdentity> {
 @Controller('admin')
 export class AdminController {
   constructor(private readonly station: StationConfigService) {}
+
+  /** The admin web UI (a self-contained page that drives the API below). */
+  @Get()
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  page(): string {
+    return ADMIN_HTML;
+  }
 
   /** Current identity plus the selectable presets (for building an admin UI). */
   @Get('config')
