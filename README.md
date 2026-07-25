@@ -4,111 +4,115 @@ A streaming server that sounds like a local music radio station — one shared l
 
 > **This is a living document.** It will change as the project progresses.
 
-📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)**
+📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)** · 🎛️ **[Station admin](https://ailocalradiostation-backend.onrender.com/admin)**
 
 ## Overview
 
-Create a streaming server that loops music and feels like a real local radio station: songs back-to-back with a DJ announcing tracks, giving time checks, and reading local weather and news. Anyone with the link tunes into the **same** live stream — like turning a radio dial, you join wherever the broadcast currently is.
+Create a streaming server that loops music and feels like a real local radio station: songs with a DJ announcing the time between them (weather, news, and events to come). Anyone with the link tunes into the **same** live stream — like turning a radio dial, you join wherever the broadcast currently is.
 
 ## Features
 
-- DJ announces the name and artist of the song that's playing
-- DJ occasionally gives a time check (says the current time)
-- DJ occasionally reads a short weather forecast (current day and evening)
-- DJ reads local news headlines at the top of the hour
-- DJ briefly promotes local events
-- Station ID jingle at the top and bottom of the hour
+**Shipped**
+
+- 🔴 **One shared live stream** — every listener hears the same moment (a single real-time-paced producer, fanned out to all `/stream` connections).
+- 🎙️ **AI DJ time-check after every song** — speaks the current local time, cleanly between songs (0.5s gap on each side, no talking over the music).
+- 🧠 **Natural neural voice** — [Piper](https://github.com/OHF-Voice/piper1-gpl) by default in production (espeak-ng as a fallback).
+- ⏱️ **Accurate time** — timezone-aware (DST correct) and **latency-compensated** so the spoken time matches your clock when you actually hear it.
+- 🎛️ **Live admin panel** (`/admin`) — switch the station name / city / frequency / tagline and the DJ's timezone on the fly, no restart. Presets for the US time zones.
+- 📊 **Comprehensive logging** — the full runtime (songs, DJ, cache, transitions, errors) is visible in the host logs; tune verbosity with `LOG_LEVELS`.
+- 🟢 **Independent status page** — up/down monitoring hosted off-Render (GitHub Pages + Actions).
+
+**Planned** — song name/artist announcements, weather & news at the top of the hour, local events, scheduled station-ID jingles, a now-playing feed, song requests.
 
 ## Architecture
 
 The stack is **Next.js** (frontend) + **Nest.js** (backend), with **ffmpeg** as the audio engine.
 
 ```
-Content sources      songs · DJ voice clips · jingles
-       |
-Playlist + scheduler (Nest)   decides what plays next, and when
-       |
-ffmpeg audio engine           concatenates files into one real-time MP3 stream
-       |
-Nest broadcaster (fan-out)    one shared playhead for everyone
-       |                \
-  MP3 /stream            SSE /now-playing (live metadata)
-       |                /
-Next.js player          audio element + now-playing panel
-       |
-Listeners               all hear the same moment
+media/*.mp3  +  DJ time-check clips (Piper / espeak TTS, cached)
+      │
+Sequencer (Nest)         picks the next item and paces the show:
+      │                    song → gap → time-check → gap → song → …
+      │  spawns a short-lived DECODER ffmpeg per item
+      ▼  raw PCM piped in with { end: false }
+Persistent ENCODER ffmpeg   -re paced (the single real-time pacer) →
+      │                      one continuous MP3, framing never resets
+      ▼
+Broadcaster fan-out       one shared playhead → every /stream listener
+      │
+      ├── GET /stream    the live MP3 feed
+      ├── GET /station   station identity + listener count (player polls this)
+      └── GET /admin     admin panel  ·  GET/PUT /admin/config
+      │
+Next.js player + /admin   the "On Air" player and the station controls
+      │
+Listeners                 all hear the same moment
 ```
 
-**The core idea:** a single producer process (ffmpeg, paced at real time) generates one continuous audio stream. Each listener subscribes to that live feed mid-stream via `GET /stream`, so everyone stays in sync. The Next.js UI shows the current song via Server-Sent Events.
+**The core idea:** one long-lived **encoder** ffmpeg reads raw PCM and emits a single continuous MP3; a **sequencer** feeds it one item at a time from short-lived per-item **decoder** ffmpegs. `-re` on the encoder makes it the sole real-time pacer, and pipe backpressure throttles the decoders — so there's no drift and swapping the PCM source (song ↔ time-check ↔ silence) is invisible to listeners. The DJ clip for each boundary is **synthesized ahead of time and cache-warmed per minute**, so the time-check plays after every song without a pause.
 
-## Backend configuration
+## Configuration
 
-Each station is defined by:
+Station identity and DJ behavior are set via env (see [`backend/.env.example`](backend/.env.example)) and, for identity, can be changed **live** via the admin panel. The most useful knobs:
 
-- **Location (city)** — drives weather, news, and local events
-- **Music catalog** — the songs available to play
-- **Station identity** — name, persona, and jingles
+| Env var | Default | What it does |
+|---|---|---|
+| `STATION_NAME` / `STATION_CITY` / `STATION_FREQUENCY` | `KIND FM` / `Anytown` / `98.7` | On-air identity (also editable at `/admin`) |
+| `STATION_TIMEZONE` | `America/New_York` | IANA zone the DJ announces the time in (also editable at `/admin`) |
+| `DJ_ENABLED` | `true` | Master on/off for the DJ |
+| `DJ_EVERY_N_SONGS` | `1` | Time-check after every N songs |
+| `DJ_OVERLAP` | `false` | `false` = DJ speaks in the gap (tail stays clear); `true` = talk over the fading tail (ducked) |
+| `DJ_GAP` | `0.5` | Seconds of silence between every item |
+| `DJ_TIME_OFFSET_SEC` | `10` | Shift the announced time forward to cancel pipeline + player latency |
+| `DJ_TTS_ENGINE` | `piper` (image) / `espeak` (local) | Voice engine |
+| `LOG_LEVELS` | all | `error,warn,log,debug,verbose`; drop levels to quiet the logs |
 
-## Implementation phases
+### Admin panel
 
-### Phase I — ✅ done
-Set up a streaming server that loops 3 mp3 files over and over. Distribute a link anyone can click to play the stream — all listeners hear the same stream.
+`GET /admin` serves a small web UI to set the station name/city/frequency/tagline and the DJ's timezone (with a US-timezone typeahead). It drives a JSON API you can also call directly:
 
-Implemented: a Nest backend spawns one ffmpeg process that loops the media folder at real-time pace and fans the bytes out to every listener on `GET /stream` (one shared playhead). A Next.js player tunes into that stream. See **Running locally** below.
+```bash
+# current identity
+curl -s https://ailocalradiostation-backend.onrender.com/admin/config
 
-### Phase II — ✅ done
-1. ✅ Create shorter clips to speed up testing (~20 seconds total)
-2. ✅ Have the DJ say the current time at the end of each song
-3. ✅ Have the DJ say the current time over the tail of the song as it finishes (audio mixing, not just back-to-back playback)
+# switch the timezone / name live
+curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Radio Chicago","city":"Chicago","timeZone":"America/Chicago"}'
+```
 
-Implemented: the engine is now a **sequencer** — one persistent ffmpeg encoder
-plus a short-lived decoder per item — that plays song → spoken time-check on the
-shared stream. By default the DJ **talks over the song's fading tail** with
-sidechain ducking (`DJ_OVERLAP=true`); set `DJ_OVERLAP=false` for back-to-back.
-Speech is text-to-speech (default `espeak-ng`, swappable to Piper via
-`DJ_TTS_ENGINE`); the time is spoken in `STATION_TIMEZONE`. Toggle with
-`DJ_ENABLED`, cadence via `DJ_EVERY_N_SONGS`. Design details in
-[docs/phase-2-dj-timecheck.md](docs/phase-2-dj-timecheck.md).
+Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is persisted to a file (`STATION_STATE_FILE`) so it survives restarts.
 
-### Later phases
-To be defined — weather/news/events, scheduled jingles, song requests, social posting.
-
-## Open questions
-
-- **What music will be played, and where will it come from?** For development: royalty-free / Creative Commons tracks or local files. Anything public-facing carries music licensing obligations.
-
-## Possible future features
-
-- Dedicated phone app per station (with customized branding)
-- Social media integration — post the song that's playing; accept song requests (maybe a poll)
-- Play music from local musicians
-- Play locally produced shows
+> ⚠️ The admin endpoints are currently **unauthenticated**. Put them behind an auth guard before exposing the backend publicly.
 
 ## Tech stack
 
 - **Frontend:** Next.js (App Router, React 19)
 - **Backend:** Nest.js
-- **Audio engine:** ffmpeg (must be installed and on `PATH`)
-- **Live metadata:** Server-Sent Events (SSE) — planned for the now-playing feed
+- **Audio engine:** ffmpeg + ffprobe (must be installed and on `PATH`)
+- **DJ voice:** Piper (neural, self-contained binary) — espeak-ng fallback
 
 ## Project structure
 
 ```
-backend/    Nest.js broadcast server (ffmpeg fan-out, /stream, /station, /health)
-  media/    .mp3 rotation (short test clips for now)
+backend/    Nest.js broadcast server (sequencer/encoder engine, DJ + TTS,
+  media/    fan-out, /stream · /station · /health · /admin)
+  src/stream/  sequencer, broadcaster, dj/, tts/, station config + admin
 frontend/   Next.js listener UI (the "On Air" player)
 status/     Self-hosted status page (GitHub Actions checker + GitHub Pages)
 ```
 
 ## Running locally
 
-Requires Node 20+ and `ffmpeg` on your `PATH`.
+Requires Node 20+ and `ffmpeg` (with `ffprobe`) on your `PATH`. For the DJ voice
+locally, install `espeak-ng` (`brew install espeak-ng`) — Piper ships in the
+Docker image but isn't required for local dev.
 
 ```bash
 # 1. Backend (broadcast server) — http://localhost:3001
 cd backend
 npm install
-npm run start:dev        # streams the 3 mp3s in backend/media on a loop
+npm run start:dev
 
 # 2. Frontend (player) — http://localhost:3000
 cd frontend
@@ -117,8 +121,9 @@ npm run dev
 ```
 
 Open http://localhost:3000 and press play. The raw shareable stream is
-http://localhost:3001/stream (drop it into any audio player). Configure the
-station identity and ports via `backend/.env` (see `backend/.env.example`).
+http://localhost:3001/stream (drop it into any audio player); the admin panel is
+http://localhost:3001/admin. Configure the station via `backend/.env` (see
+`backend/.env.example`).
 
 To use your own music, drop `.mp3` files into `backend/media/` (they play in
 filename order) and restart the backend.
@@ -127,7 +132,7 @@ filename order) and restart the backend.
 
 Live status page: **https://keyur7523.github.io/AILocalRadioStation/**
 
-It's an independent status page (hosted on **GitHub Pages**, checked by **GitHub
+An independent status page (hosted on **GitHub Pages**, checked by **GitHub
 Actions** every ~10 min) that pings the public endpoints and reports the health
 of the **Live Stream**, **Broadcast API**, and **Audio Engine**. It runs on
 GitHub's infrastructure — not Render — so it stays up and reports the outage
@@ -137,6 +142,8 @@ via its own last-published data), so it never triggers a Render redeploy. See
 
 ## Status
 
-**Phase II complete** — the DJ speaks the current time over each song's fading
-tail (sequencer engine + TTS + sidechain ducking) on the shared stream. Next up:
-later phases — song announcements, weather/news, scheduled jingles.
+**Live.** Shared MP3 stream + AI DJ time-check after every song (natural Piper
+voice, back-to-back with clean gaps, timezone-aware and latency-compensated),
+plus a live admin panel to switch station identity/timezone. Design notes for
+the DJ engine are in [docs/phase-2-dj-timecheck.md](docs/phase-2-dj-timecheck.md).
+Next up: song announcements, weather/news, scheduled jingles.
