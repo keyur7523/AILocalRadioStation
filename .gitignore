@@ -17,6 +17,9 @@ status/data/
 .env.local
 .env.*.local
 
+# Locally-fetched playlist audio (yt-dlp) — never commit/deploy; local POC only
+backend/media-local/
+
 # OS / editor
 .DS_Store
 *.swp
