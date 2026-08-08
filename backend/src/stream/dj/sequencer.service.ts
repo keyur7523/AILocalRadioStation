@@ -73,6 +73,8 @@ export class SequencerService implements OnModuleDestroy {
   private pendingDj = false;
   /** Guards the inter-item silence so gaps and real items alternate. */
   private lastWasGap = true;
+  /** The song a break will back-announce — the most recent one to start. */
+  private lastSongPath = '';
 
   /**
    * Per-file trim points, computed once per track and reused. Keyed by path;
@@ -386,6 +388,7 @@ export class SequencerService implements OnModuleDestroy {
     }
 
     const path = this.songs[this.songIndex];
+    this.lastSongPath = path;
     this.songIndex = (this.songIndex + 1) % this.songs.length;
     this.songsSinceDj += 1;
 
@@ -435,8 +438,14 @@ export class SequencerService implements OnModuleDestroy {
       this.djPrefetch = undefined;
       return Promise.resolve(clip);
     }
-    // Not ready yet: wait for the in-flight prefetch, or synthesize now.
-    const pending = this.djPrefetch ?? this.dj.nextInterstitial();
+    // Not ready yet: wait for the in-flight prefetch, or build one now. The
+    // fallback must carry the same context, or the break would silently
+    // downgrade to a bare time check with no track announcement.
+    const pending =
+      this.djPrefetch ??
+      this.breakContext(this.lastSongPath).then((ctx) =>
+        this.dj.nextInterstitial(ctx),
+      );
     this.djPrefetch = undefined;
     return pending;
   }
@@ -456,10 +465,15 @@ export class SequencerService implements OnModuleDestroy {
         if (this.stopping || this.djPrefetch || this.djReady !== undefined) {
           return;
         }
-        const delayMs = Math.max(
-          0,
-          (dur - this.config.dj.prefetchLeadSec) * 1000,
+        // The timer runs against decode time, but decoding finishes `bufferSec`
+        // before playback does (that's the cushion). Fire far enough ahead that
+        // the clip is under way while the decoder is still alive — otherwise the
+        // boundary arrives first and has to synthesize inline.
+        const leadSec = Math.max(
+          this.config.dj.prefetchLeadSec,
+          this.config.bufferSec + 1,
         );
+        const delayMs = Math.max(0, (dur - leadSec) * 1000);
         this.logger.verbose(
           `DJ prefetch scheduled in ${Math.round(delayMs)}ms (generate-ahead)`,
         );

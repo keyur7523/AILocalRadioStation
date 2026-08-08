@@ -24,7 +24,8 @@ RUN curl -fsSL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/p
 # Baked as image ENV so it applies on deploy without needing dashboard/env changes.
 ENV DJ_TTS_ENGINE=piper \
     PIPER_PATH=/opt/piper/piper \
-    DJ_VOICE_MODEL=/app/voices/en_US-lessac-medium.onnx
+    DJ_VOICE_MODEL=/app/voices/en_US-lessac-medium.onnx \
+    DJ_CACHE_DIR=/app/dj-cache
 
 WORKDIR /app
 
@@ -35,6 +36,13 @@ RUN npm ci
 # Build the Nest app.
 COPY . .
 RUN npm run build
+
+# Pre-synthesize the DJ's track announcements into the image. These lines never
+# change, and the runtime host has only a fraction of a CPU — generating them
+# here means the live station only ever synthesizes the short time-of-day line.
+# Uses the same Piper voice as runtime, so the cache keys match. Best-effort:
+# it never fails the build, it just leaves the DJ to generate live.
+RUN npm run pregenerate
 
 # Render provides PORT at runtime; the app reads it (defaults to 3001 locally).
 ENV NODE_ENV=production

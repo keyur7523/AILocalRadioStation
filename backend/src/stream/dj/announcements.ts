@@ -66,6 +66,16 @@ export function timeSegment(clock: string, seed = 0): string {
 }
 
 /**
+ * Every line this track can produce that has no clock in it — i.e. everything
+ * that is identical each time the track comes round. Synthesizing these ahead
+ * of time (see `tools/pregenerate-announcements.ts`) means the DJ never has to
+ * generate them live, which matters a lot on a small CPU.
+ */
+export function staticSegmentsFor(track: TrackInfo): string[] {
+  return [...OUTROS.map((f) => f(track)), ...INTROS.map((f) => f(track))];
+}
+
+/**
  * Compose one DJ break as ordered segments, played back to back. Degrades
  * gracefully: with no track metadata it's just the time check, so the DJ always
  * has something to say.
