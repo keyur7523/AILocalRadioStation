@@ -14,57 +14,20 @@ export abstract class BaseTtsService implements TtsService {
   private readonly inFlight = new Map<string, Promise<string>>();
 
   /**
-   * Serializes every synthesis in the process, across engines and callers.
-   *
-   * A neural voice holds its whole model in memory while it runs (hundreds of MB
-   * for a high-quality one). Nothing otherwise stops the per-minute cache warmer
-   * from overlapping a break's synthesis, and two models resident at once can
-   * exhaust a small host — taking the broadcast down with it. Queueing costs
-   * nothing in the common case, since cached clips never reach here.
-   */
-  private static renderQueue: Promise<unknown> = Promise.resolve();
-  private static queueDepth = 0;
-
-  /**
-   * Whether any synthesis is running or waiting. Optional work (the per-minute
-   * warmer) checks this and steps aside rather than piling on — on a slow host a
-   * queue that never drains keeps the CPU busy indefinitely.
-   */
-  static get busy(): boolean {
-    return BaseTtsService.queueDepth > 0;
-  }
-
-  /** Run `task` once every previously queued synthesis has finished. */
-  private static enqueue<T>(task: () => Promise<T>): Promise<T> {
-    BaseTtsService.queueDepth += 1;
-    const run = BaseTtsService.renderQueue.then(task, task);
-    // Keep the chain alive regardless of individual failures.
-    BaseTtsService.renderQueue = run.catch(() => undefined);
-    return run.finally(() => {
-      BaseTtsService.queueDepth -= 1;
-    });
-  }
-
-  /**
    * @param engine    short engine id, part of the cache key (e.g. 'espeak')
+   * @param variant   engine variant (e.g. voice name) so a voice change re-synths
    * @param extension output file extension (e.g. 'wav')
    * @param cacheDir  directory for cached clips (created if missing)
    */
   constructor(
     private readonly engine: string,
+    private readonly variant: string,
     private readonly extension: string,
     protected readonly cacheDir: string,
   ) {
     this.logger = new Logger(`Tts:${engine}`);
     mkdirSync(cacheDir, { recursive: true });
   }
-
-  /**
-   * The engine variant (e.g. the voice) at this moment. Read per call, not fixed
-   * at construction, so a voice switched at runtime immediately keys a different
-   * cache entry — clips for each voice coexist and switching back is instant.
-   */
-  protected abstract get variant(): string;
 
   /** Engine-specific synthesis: write `text` as audio to `outPath`. */
   protected abstract render(text: string, outPath: string): Promise<void>;
@@ -92,16 +55,15 @@ export abstract class BaseTtsService implements TtsService {
 
     this.logger.debug(`cache miss — synthesizing "${text}"…`);
     const startedAt = Date.now();
-    const task = BaseTtsService.enqueue(async () => {
-      // Another queued job may have produced this exact clip while we waited.
-      if (existsSync(outPath)) return outPath;
-      await this.render(text, outPath);
-      if (!existsSync(outPath)) {
-        throw new Error('TTS produced no output file');
-      }
-      this.logger.log(`synthesized "${text}" in ${Date.now() - startedAt}ms`);
-      return outPath;
-    }).finally(() => this.inFlight.delete(outPath));
+    const task = this.render(text, outPath)
+      .then(() => {
+        if (!existsSync(outPath)) {
+          throw new Error('TTS produced no output file');
+        }
+        this.logger.log(`synthesized "${text}" in ${Date.now() - startedAt}ms`);
+        return outPath;
+      })
+      .finally(() => this.inFlight.delete(outPath));
 
     this.inFlight.set(outPath, task);
     return task;

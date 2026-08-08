@@ -1,4 +1,4 @@
-import { spawnLowPriority } from './spawn-nice';
+import { spawn } from 'node:child_process';
 import { BaseTtsService } from './base-tts.service';
 
 /**
@@ -8,27 +8,16 @@ import { BaseTtsService } from './base-tts.service';
 export class EspeakTtsService extends BaseTtsService {
   private readonly binPath: string;
 
-  constructor(
-    cacheDir: string,
-    binPath = process.env.ESPEAK_PATH ?? 'espeak-ng',
-  ) {
-    super('espeak', 'wav', cacheDir);
+  constructor(cacheDir: string, binPath = process.env.ESPEAK_PATH ?? 'espeak-ng') {
+    super('espeak', 'default', 'wav', cacheDir);
     this.binPath = binPath;
-  }
-
-  protected get variant(): string {
-    return 'default'; // espeak-ng ships a single voice here
   }
 
   protected render(text: string, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const proc = spawnLowPriority(this.binPath, ['-w', outPath, text], {
+      const proc = spawn(this.binPath, ['-w', outPath, text], {
         stdio: ['ignore', 'ignore', 'pipe'],
       });
-      if (!proc.stderr) {
-        reject(new Error('espeak-ng: could not open pipes'));
-        return;
-      }
       let stderr = '';
       proc.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
       proc.on('error', reject);

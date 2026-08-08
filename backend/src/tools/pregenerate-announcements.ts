@@ -25,9 +25,7 @@ import { join } from 'node:path';
 import { staticSegmentsFor } from '../stream/dj/announcements';
 import { buildTrackInfo } from '../stream/dj/track-info';
 import { loadStreamConfig } from '../stream/stream.config';
-import { PiperTtsService } from '../stream/tts/piper-tts.service';
 import { createTtsService } from '../stream/tts/tts.provider';
-import { discoverVoices } from '../stream/tts/voices';
 
 /** Read a file's title/artist tags via ffprobe (mirrors the sequencer). */
 function readTags(
@@ -87,35 +85,23 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Gather the phrases once, then render them in every installed voice, so the
-  // admin can switch voices live without waiting on synthesis.
-  const phrases: string[] = [];
+  const tts = createTtsService();
+  console.log(
+    `[pregenerate] ${tracks.length} track(s) → cache ${dj.cacheDir} ` +
+      `(engine: ${dj.ttsEngine})`,
+  );
+
+  let made = 0;
+  let failed = 0;
   for (const path of tracks) {
     const info = buildTrackInfo(await readTags(ffprobePath, path), path);
     if (!info) {
       console.log(`[pregenerate] ${path}: no usable metadata — skipping`);
       continue;
     }
-    phrases.push(...staticSegmentsFor(info));
-  }
-
-  const voices =
-    dj.ttsEngine === 'piper' ? discoverVoices(dj.voicesDir) : [null];
-  console.log(
-    `[pregenerate] ${phrases.length} phrase(s) × ${voices.length} voice(s) ` +
-      `→ cache ${dj.cacheDir} (engine: ${dj.ttsEngine})`,
-  );
-
-  let made = 0;
-  let failed = 0;
-  for (const voice of voices) {
-    const tts = voice
-      ? new PiperTtsService(dj.cacheDir, voice.modelPath)
-      : createTtsService();
-    if (voice) console.log(`[pregenerate] voice ${voice.id}`);
     // Sequential on purpose: a speech engine can hold a few hundred MB, and
     // build machines are not always roomy.
-    for (const text of phrases) {
+    for (const text of staticSegmentsFor(info)) {
       try {
         await tts.synthesize(text);
         made += 1;

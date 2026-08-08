@@ -6,7 +6,6 @@ import { SequencerService } from './dj/sequencer.service';
 import { StationConfigService } from './station-config.service';
 import { StreamController } from './stream.controller';
 import { ttsProvider } from './tts/tts.provider';
-import { VoiceConfigService } from './tts/voice-config.service';
 
 /**
  * Owns the live broadcast: the sequencer/encoder engine, the DJ + TTS, the
@@ -17,7 +16,6 @@ import { VoiceConfigService } from './tts/voice-config.service';
   controllers: [StreamController, AdminController],
   providers: [
     StationConfigService,
-    VoiceConfigService,
     BroadcasterService,
     SequencerService,
     DjService,
