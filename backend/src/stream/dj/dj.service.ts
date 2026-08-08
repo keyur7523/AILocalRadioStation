@@ -78,13 +78,16 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * The time we announce: now shifted forward so the spoken time matches the
-   * listener's clock when they actually *hear* it. Two delays sit between
+   * listener's clock when they actually *hear* it. Three delays sit between
    * synthesis and the ear — the generate-ahead lead (the clip is made this long
-   * before it plays) and player/stream buffering (`timeOffsetSec`).
+   * before it plays), the server's own decode-ahead cushion (`bufferSec`), and
+   * player/stream buffering (`timeOffsetSec`). Deriving it keeps the clock right
+   * when any of those are tuned.
    */
   private announcedTime(): Date {
     const { timeOffsetSec, prefetchLeadSec } = this.config.dj;
-    return new Date(Date.now() + (timeOffsetSec + prefetchLeadSec) * 1000);
+    const aheadSec = timeOffsetSec + prefetchLeadSec + this.config.bufferSec;
+    return new Date(Date.now() + aheadSec * 1000);
   }
 
   /**

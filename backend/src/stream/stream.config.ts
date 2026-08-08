@@ -24,6 +24,13 @@ export interface StreamConfig {
   sampleRate: number;
   /** Delay (ms) before relaunching ffmpeg if it exits unexpectedly. */
   restartDelayMs: number;
+  /**
+   * Seconds of decoded audio to keep buffered ahead of the encoder. The OS pipe
+   * alone holds only ~0.4s, so any hiccup longer than that (a speech synthesis
+   * stealing CPU on a small host, a slow disk read) starves the encoder and the
+   * stream goes briefly silent. This is the cushion that absorbs it.
+   */
+  bufferSec: number;
   /** On-air identity, surfaced to the player UI and as ICY stream headers. */
   station: {
     name: string;
@@ -135,6 +142,10 @@ export function loadStreamConfig(): StreamConfig {
     bitrate: process.env.STREAM_BITRATE ?? '128k',
     sampleRate: Number(process.env.STREAM_SAMPLE_RATE ?? 44100),
     restartDelayMs: Number(process.env.STREAM_RESTART_DELAY_MS ?? 1000),
+    // Floored at 1s: a sub-second cushion can pause the decoder before the
+    // encoder has primed, which stalls the pipeline outright — and it would be
+    // too small to absorb anything useful anyway.
+    bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 6)),
     station: {
       name: process.env.STATION_NAME ?? 'KIND FM',
       frequency: process.env.STATION_FREQUENCY ?? '98.7',

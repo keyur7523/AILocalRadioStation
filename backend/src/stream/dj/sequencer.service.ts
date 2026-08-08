@@ -91,6 +91,13 @@ export class SequencerService implements OnModuleDestroy {
 
   private onChunk: (chunk: Buffer) => void = () => {};
 
+  /** `bufferSec` expressed in bytes of the shared PCM format. */
+  private get maxBufferBytes(): number {
+    return Math.round(
+      this.config.bufferSec * this.config.sampleRate * PCM.channels * 2,
+    );
+  }
+
   constructor(private readonly dj: DjService) {}
 
   start(hooks: SequencerHooks): void {
@@ -185,7 +192,16 @@ export class SequencerService implements OnModuleDestroy {
       );
       this.encoder = encoder;
       this.logger.log(
-        `Encoder up (pid ${encoder.pid}) — ${this.config.bitrate} MP3, single real-time pacer`,
+        `Encoder up (pid ${encoder.pid}) — ${this.config.bitrate} MP3, ` +
+          `single real-time pacer, ${this.config.bufferSec}s buffer`,
+      );
+
+      // As the encoder works through the cushion, let the current decoder top
+      // it back up. Registered once here, since stdin lives as long as the
+      // encoder while decoders come and go.
+      encoder.stdin.on('drain', () => this.decoder?.stdout.resume());
+      encoder.stdin.on('error', (err) =>
+        this.logger.warn(`encoder stdin: ${err.message}`),
       );
 
       encoder.stdout.on('data', (chunk: Buffer) => this.onChunk(chunk));
@@ -286,8 +302,19 @@ export class SequencerService implements OnModuleDestroy {
     this.decoder = decoder;
     this.logger.verbose(`decode ${item.kind} started (pid ${decoder.pid})`);
 
-    // { end: false } is load-bearing: never close the encoder's stdin here.
-    decoder.stdout.pipe(encoder.stdin, { end: false });
+    // Hand PCM to the encoder ourselves rather than piping, for two reasons:
+    // we must never close the encoder's stdin (a pipe would, ending the whole
+    // broadcast), and we want to run *ahead* of playback. The encoder consumes
+    // at real time, so letting its stdin buffer fill to `bufferSec` gives that
+    // many seconds of cushion — enough that a CPU spike (speech synthesis on a
+    // small host) can't starve the stream into silence. The decoder is paused
+    // once the cushion is full and resumes as the encoder drains it.
+    decoder.stdout.on('data', (chunk: Buffer) => {
+      encoder.stdin.write(chunk);
+      if (encoder.stdin.writableLength >= this.maxBufferBytes) {
+        decoder.stdout.pause();
+      }
+    });
     decoder.stderr.on('data', (chunk: Buffer) =>
       this.logger.debug(`decoder: ${chunk.toString().trim()}`),
     );
