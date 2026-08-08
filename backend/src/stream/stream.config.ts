@@ -68,6 +68,12 @@ export interface StreamConfig {
      */
     announceTracks: boolean;
     /**
+     * How long to wait for one spoken segment before giving up on it. Speech
+     * synthesis is slow on a small shared CPU, and abandoning a synth that would
+     * have finished just leaves dead air — so this is generous.
+     */
+    synthTimeoutMs: number;
+    /**
      * Talk OVER the song's fading tail (ducking) vs back-to-back after it.
      * Defaults to `false` (back-to-back) so a song's tail is never ducked
      * unless overlap is explicitly opted into.
@@ -153,6 +159,10 @@ export function loadStreamConfig(): StreamConfig {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
       announceTracks: (process.env.DJ_ANNOUNCE_TRACKS ?? 'true') !== 'false',
+      synthTimeoutMs: Math.max(
+        1000,
+        Number(process.env.DJ_SYNTH_TIMEOUT_MS ?? 45000),
+      ),
       overlap: (process.env.DJ_OVERLAP ?? 'false') === 'true',
       gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),

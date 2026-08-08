@@ -1,4 +1,4 @@
-import { buildBreakPhrase } from './announcements';
+import { buildBreakSegments, timeSegment } from './announcements';
 import {
   buildTrackInfo,
   cleanForSpeech,
@@ -41,55 +41,72 @@ describe('track-info', () => {
   });
 });
 
-describe('buildBreakPhrase', () => {
+describe('buildBreakSegments', () => {
   const played = { title: 'Daydream', artist: 'RINZO' };
   const next = { title: '7AM', artist: 'Sculpture' };
 
-  it('back-announces, gives the time, then teases the next track', () => {
+  it('splits into back-announce, time, and tease', () => {
     expect(
-      buildBreakPhrase({
+      buildBreakSegments({
         justPlayed: played,
         nextUp: next,
         clock: '3:42 PM',
         seed: 0,
       }),
-    ).toBe(
-      "That was Daydream by RINZO. Right now it's 3:42 PM, and we've got plenty " +
-        'more music coming your way. Next up, 7AM by Sculpture.',
-    );
+    ).toEqual([
+      'That was Daydream by RINZO.',
+      "Right now it's 3:42 PM, and we've got plenty more music coming your way.",
+      'Next up, 7AM by Sculpture.',
+    ]);
   });
 
   it('rotates templates so the DJ does not repeat itself', () => {
     expect(
-      buildBreakPhrase({
+      buildBreakSegments({
         justPlayed: played,
         nextUp: next,
         clock: '3:42 PM',
         seed: 1,
       }),
-    ).toBe(
-      "You just heard Daydream from RINZO. It's 3:42 PM. Stay right here for " +
-        "more music. Now let's listen to 7AM by Sculpture.",
-    );
+    ).toEqual([
+      'You just heard Daydream from RINZO.',
+      "It's 3:42 PM. Stay right here for more music.",
+      "Now let's listen to 7AM by Sculpture.",
+    ]);
+  });
+
+  it('keeps the track segments free of the clock, so they cache forever', () => {
+    const clock = /\d{1,2}:\d{2}/; // a spoken time like "3:42"
+    const [outro, time, intro] = buildBreakSegments({
+      justPlayed: played,
+      nextUp: next,
+      clock: '3:42 PM',
+      seed: 0,
+    });
+    expect(outro).not.toMatch(clock);
+    expect(intro).not.toMatch(clock); // "7AM" is a title, not a time
+    expect(time).toMatch(clock); // only this segment changes per minute
   });
 
   it('omits the artist when it is unknown', () => {
     expect(
-      buildBreakPhrase({
+      buildBreakSegments({
         justPlayed: { title: 'Daydream' },
         clock: '1:00 AM',
         seed: 0,
-      }),
-    ).toContain('That was Daydream.');
+      })[0],
+    ).toBe('That was Daydream.');
   });
 
   it('still gives the time when nothing can be announced', () => {
-    expect(buildBreakPhrase({ clock: '9:05 PM' })).toBe('The time is 9:05 PM.');
+    expect(buildBreakSegments({ clock: '9:05 PM', seed: 1 })).toEqual([
+      "It's 9:05 PM. Stay right here for more music.",
+    ]);
   });
 
-  it('keeps the time check on an intro-only break', () => {
-    const phrase = buildBreakPhrase({ nextUp: next, clock: '9:05 PM' });
-    expect(phrase).toContain('The time is 9:05 PM.');
-    expect(phrase).toContain('Next up, 7AM by Sculpture.');
+  it('exposes the time sentence alone for pre-warming', () => {
+    expect(timeSegment('9:05 PM', 1)).toBe(
+      "It's 9:05 PM. Stay right here for more music.",
+    );
   });
 });

@@ -18,8 +18,9 @@ export interface SequencerHooks {
 }
 
 type Item =
-  | { kind: 'song'; path: string; talkover?: string }
-  | { kind: 'dj'; path: string }
+  | { kind: 'song'; path: string; talkover?: string[] }
+  /** One break, spoken as a sequence of separately-cached clips. */
+  | { kind: 'dj'; paths: string[] }
   | { kind: 'gap' };
 
 /**
@@ -82,11 +83,11 @@ export class SequencerService implements OnModuleDestroy {
   /** Per-file track metadata (title/artist), read once from the file's tags. */
   private readonly trackCache = new Map<string, Promise<TrackInfo | null>>();
 
-  /** A DJ clip synthesized ahead of the boundary that will consume it. */
-  private djPrefetch?: Promise<string | null>;
+  /** A DJ break's clips, synthesized ahead of the boundary that consumes them. */
+  private djPrefetch?: Promise<string[] | null>;
   private prefetchTimer?: NodeJS.Timeout;
-  /** The prefetch's resolved result, set once synthesis finishes (path/null). */
-  private djReady?: string | null;
+  /** The prefetch's resolved result, set once synthesis finishes. */
+  private djReady?: string[] | null;
 
   private onChunk: (chunk: Buffer) => void = () => {};
 
@@ -253,12 +254,16 @@ export class SequencerService implements OnModuleDestroy {
           this.plainDecoderArgs(item.path, trim))
         : this.plainDecoderArgs(item.path, trim);
     } else {
-      // DJ clip: trimmed gently (see trimForClip); usually already analyzed
-      // when the prefetch resolved, so this is instant.
-      args = this.plainDecoderArgs(
-        item.path,
-        await this.trimForClip(item.path),
-      );
+      // DJ break. A single clip gets the gentle speech trim; a multi-segment
+      // break is concatenated as-is, since the short pause each clip already
+      // carries is what separates the sentences.
+      args =
+        item.paths.length === 1
+          ? this.plainDecoderArgs(
+              item.paths[0],
+              await this.trimForClip(item.paths[0]),
+            )
+          : this.concatDecoderArgs(item.paths);
     }
 
     const encoder = this.encoder;
@@ -270,7 +275,7 @@ export class SequencerService implements OnModuleDestroy {
         `▶  song: ${name}${item.talkover ? ' (DJ over tail)' : ''}`,
       );
     } else if (item.kind === 'dj') {
-      this.logger.log(`🎙  time-check on air: ${item.path.split('/').pop()}`);
+      this.logger.log(`🎙  DJ break on air (${item.paths.length} segment(s))`);
     } else if (item.kind === 'gap') {
       this.logger.debug(`···  gap ${this.config.dj.gapSec}s`);
     }
@@ -307,7 +312,12 @@ export class SequencerService implements OnModuleDestroy {
       setImmediate(() => this.tick());
     };
     decoder.on('error', (err) => {
-      const label = item.kind === 'gap' ? 'gap' : item.path;
+      const label =
+        item.kind === 'gap'
+          ? 'gap'
+          : item.kind === 'dj'
+            ? item.paths.join(' + ')
+            : item.path;
       this.logger.warn(`decoder error (${label}): ${err.message}`);
       advance();
     });
@@ -345,7 +355,7 @@ export class SequencerService implements OnModuleDestroy {
         );
         return null;
       }
-      return { kind: 'dj', path: clip };
+      return { kind: 'dj', paths: clip };
     }
 
     const path = this.songs[this.songIndex];
@@ -391,7 +401,7 @@ export class SequencerService implements OnModuleDestroy {
    * (`djReady` set), so this resolves instantly and never actually waits — the
    * brief wait only happens on a cold start before the cache warms.
    */
-  private takeDj(): Promise<string | null> {
+  private takeDj(): Promise<string[] | null> {
     if (this.djReady !== undefined) {
       const clip = this.djReady;
       this.djReady = undefined;
@@ -433,11 +443,11 @@ export class SequencerService implements OnModuleDestroy {
             this.dj.nextInterstitial(ctx),
           );
           this.djPrefetch = pending;
-          void pending.then((clip) => {
-            if (this.djPrefetch === pending) this.djReady = clip;
-            // Analyze the clip now, while the song still plays, so the boundary
-            // doesn't wait on it.
-            if (clip) void this.trimForClip(clip);
+          void pending.then((clips) => {
+            if (this.djPrefetch === pending) this.djReady = clips;
+            // Analyze a single-clip break now, while the song still plays, so
+            // the boundary doesn't wait on it.
+            if (clips?.length === 1) void this.trimForClip(clips[0]);
           });
         }, delayMs);
       })
@@ -505,6 +515,36 @@ export class SequencerService implements OnModuleDestroy {
   }
 
   /**
+   * Decode several clips as one continuous item, joined end to end. A DJ break
+   * is spoken as separate segments (so each caches independently); concatenating
+   * them in a single decode keeps the break a single seamless unit on the
+   * stream, with the natural pause each clip already carries between sentences.
+   */
+  private concatDecoderArgs(paths: string[]): string[] {
+    if (paths.length === 1) return this.plainDecoderArgs(paths[0]);
+    const inputs = paths.flatMap((p) => ['-i', p]);
+    const labels = paths.map((_, i) => `[${i}:a]`).join('');
+    return [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      ...inputs,
+      '-filter_complex',
+      `${labels}concat=n=${paths.length}:v=0:a=1[out]`,
+      '-map',
+      '[out]',
+      '-vn',
+      '-f',
+      PCM.format,
+      '-ar',
+      String(this.config.sampleRate),
+      '-ac',
+      String(PCM.channels),
+      'pipe:1',
+    ];
+  }
+
+  /**
    * Plain decode of one file to the shared PCM contract (encoder paces it).
    * `trim` skips dead air: `-ss` before `-i` seeks past the silent head, `-t`
    * caps the output so the silent tail is never emitted.
@@ -538,17 +578,18 @@ export class SequencerService implements OnModuleDestroy {
    */
   private async talkoverArgs(
     song: string,
-    clip: string,
+    clips: string[],
     trim: Trim = NO_TRIM,
   ): Promise<string[] | null> {
     try {
-      const [rawSongDur, clipDur] = await Promise.all([
+      const [rawSongDur, ...clipDurs] = await Promise.all([
         this.probeDurationSec(song),
-        this.probeDurationSec(clip),
+        ...clips.map((c) => this.probeDurationSec(c)),
       ]);
       // Time the duck against the *audible* length, so the voice lands over the
       // real ending rather than over trimmed-away silence.
       const songDur = trim.duration ?? rawSongDur - trim.start;
+      const clipDur = clipDurs.reduce((a, b) => a + b, 0);
       const sr = this.config.sampleRate;
       const startMs = Math.max(
         0,
@@ -557,9 +598,17 @@ export class SequencerService implements OnModuleDestroy {
         ),
       );
       const layout = `aformat=sample_rates=${sr}:channel_layouts=stereo`;
+      // The break's segments are joined into one voice track before ducking.
+      const voiceLabels = clips.map((_, i) => `[${i + 1}:a]`).join('');
+      const joinVoice =
+        clips.length > 1
+          ? `${voiceLabels}concat=n=${clips.length}:v=0:a=1[voice];`
+          : '';
+      const voice = clips.length > 1 ? '[voice]' : '[1:a]';
       const graph =
         `[0:a]${layout}[music];` +
-        `[1:a]${layout},adelay=${startMs}|${startMs},apad=whole_dur=${songDur},asplit=2[vkey][vmix];` +
+        joinVoice +
+        `${voice}${layout},adelay=${startMs}|${startMs},apad=whole_dur=${songDur},asplit=2[vkey][vmix];` +
         `[music][vkey]sidechaincompress=threshold=0.015:ratio=10:attack=20:release=350[ducked];` +
         `[ducked][vmix]amix=inputs=2:normalize=0:dropout_transition=0[out]`;
       return [
@@ -569,8 +618,7 @@ export class SequencerService implements OnModuleDestroy {
         ...(trim.start > 0 ? ['-ss', trim.start.toFixed(3)] : []),
         '-i',
         song,
-        '-i',
-        clip,
+        ...clips.flatMap((c) => ['-i', c]),
         ...(trim.duration !== null ? ['-t', trim.duration.toFixed(3)] : []),
         '-filter_complex',
         graph,

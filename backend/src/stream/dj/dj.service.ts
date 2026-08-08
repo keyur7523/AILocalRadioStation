@@ -8,7 +8,7 @@ import {
 import { loadStreamConfig, type StreamConfig } from '../stream.config';
 import { StationConfigService } from '../station-config.service';
 import { TTS_SERVICE, type TtsService } from '../tts/tts.interface';
-import { buildBreakPhrase } from './announcements';
+import { buildBreakSegments, timeSegment } from './announcements';
 import { formatClock, formatTimePhrase } from './time-announcer';
 import type { TrackInfo } from './track-info';
 
@@ -47,7 +47,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 export class DjService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(DjService.name);
   private readonly config: StreamConfig = loadStreamConfig();
-  private static readonly SYNTH_TIMEOUT_MS = 15000;
 
   private warmTimer?: NodeJS.Timeout;
   private warmedPhrase?: string;
@@ -70,13 +69,11 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
       `DJ enabled — ${announceTracks ? 'track announcements + time' : 'time checks'} ` +
         `(TZ=${this.station.timeZone}, time-offset ${timeOffsetSec}s)`,
     );
-    // Warming only pays off when every break says the same thing. With track
-    // announcements the phrase differs per break, so pre-synthesizing a
-    // time-only clip would just burn CPU; generate-ahead covers that case.
-    if (!announceTracks) {
-      void this.warm();
-      this.scheduleWarm();
-    }
+    // The time line is the only part of a break that changes, and it's the same
+    // text for every break in a minute — so pre-warming it keeps the hot path a
+    // pure cache hit. (The track lines cache themselves after their first play.)
+    void this.warm();
+    this.scheduleWarm();
   }
 
   /**
@@ -91,16 +88,17 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * What the DJ says at this break: a full back-announce + time + tease when the
-   * tracks carry metadata, or the plain time check otherwise.
+   * The segments the DJ speaks at this break, in order. Split so each piece
+   * caches on its own (see `announcements.ts`) — the track lines are identical
+   * every time that track comes round, and only the time changes.
    */
-  private buildPhrase({ justPlayed, nextUp }: BreakInfo): string {
+  private buildSegments({ justPlayed, nextUp }: BreakInfo): string[] {
     const at = this.announcedTime();
     const zone = this.station.timeZone;
     if (!this.config.dj.announceTracks || (!justPlayed && !nextUp)) {
-      return formatTimePhrase(at, zone);
+      return [formatTimePhrase(at, zone)];
     }
-    return buildBreakPhrase({
+    return buildBreakSegments({
       justPlayed,
       nextUp,
       clock: formatClock(at, zone),
@@ -126,24 +124,41 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Produce the next interstitial clip (a current-time announcement), generated
-   * fresh so the spoken time is accurate. Returns the audio file path, or `null`
-   * if the DJ is disabled or synthesis fails/times out.
+   * Produce the clips for the next break, in playback order. Each segment is
+   * synthesized (or served from cache) separately, so a repeat of the same track
+   * costs nothing and only the time line can ever need fresh synthesis.
+   *
+   * Returns `null` if the DJ is disabled or nothing could be produced — the
+   * sequencer then just plays music. A segment that fails individually is
+   * dropped, so a slow time line still leaves the track announcements intact.
    */
-  async nextInterstitial(context: BreakInfo = {}): Promise<string | null> {
+  async nextInterstitial(context: BreakInfo = {}): Promise<string[] | null> {
     if (!this.config.dj.enabled) return null;
-    const phrase = this.buildPhrase(context);
-    try {
-      const path = await withTimeout(
-        this.tts.synthesize(phrase),
-        DjService.SYNTH_TIMEOUT_MS,
-      );
-      this.logger.log(`🎙  DJ: "${phrase}"`);
-      return path;
-    } catch (err) {
-      this.logger.warn(`DJ segment skipped: ${(err as Error).message}`);
+    const segments = this.buildSegments(context);
+    // Deliberately sequential: a speech engine can hold a few hundred MB while
+    // it runs, and synthesizing every segment at once would multiply that on a
+    // small host. Cached segments resolve instantly, so this costs nothing in
+    // steady state.
+    const kept: { text: string; path: string }[] = [];
+    for (const text of segments) {
+      try {
+        const path = await withTimeout(
+          this.tts.synthesize(text),
+          this.config.dj.synthTimeoutMs,
+        );
+        kept.push({ text, path });
+      } catch (err) {
+        this.logger.warn(
+          `DJ segment dropped ("${text}"): ${(err as Error).message}`,
+        );
+      }
+    }
+    if (kept.length === 0) {
+      this.logger.warn('DJ break skipped — no segment could be synthesized');
       return null;
     }
+    this.logger.log(`🎙  DJ: "${kept.map((s) => s.text).join(' ')}"`);
+    return kept.map((s) => s.path);
   }
 
   /**
@@ -171,10 +186,13 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async warm(): Promise<void> {
-    const phrase = formatTimePhrase(
-      this.announcedTime(),
-      this.station.timeZone,
-    );
+    // Warm exactly what the next break will ask for: the time line for the
+    // upcoming template, or the plain time check when announcements are off.
+    const at = this.announcedTime();
+    const zone = this.station.timeZone;
+    const phrase = this.config.dj.announceTracks
+      ? timeSegment(formatClock(at, zone), this.breakCount)
+      : formatTimePhrase(at, zone);
     if (phrase === this.warmedPhrase) return; // already cached this minute
     try {
       await this.tts.synthesize(phrase);
