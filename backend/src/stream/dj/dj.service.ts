@@ -85,9 +85,17 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
    * when any of those are tuned.
    */
   private announcedTime(): Date {
+    return new Date(Date.now() + this.aheadMs);
+  }
+
+  /**
+   * How far ahead of "now" the DJ speaks, in ms. Everything that delays a clip
+   * between synthesis and the listener's ear. The warm timer keys off the same
+   * figure, so it always pre-synthesizes the minute the next break will ask for.
+   */
+  private get aheadMs(): number {
     const { timeOffsetSec, prefetchLeadSec } = this.config.dj;
-    const aheadSec = timeOffsetSec + prefetchLeadSec + this.config.bufferSec;
-    return new Date(Date.now() + aheadSec * 1000);
+    return (timeOffsetSec + prefetchLeadSec + this.config.bufferSec) * 1000;
   }
 
   /**
@@ -177,11 +185,12 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
     }, this.msToNextFlip());
   }
 
-  /** ms until the announced (offset-adjusted) minute next rolls over. */
+  /** ms until the announced (look-ahead–adjusted) minute next rolls over. */
   private msToNextFlip(): number {
-    const offsetMs = this.config.dj.timeOffsetSec * 1000;
-    // ms-into-the-wall-minute at which the announced minute flips.
-    const flipAt = (60000 - (offsetMs % 60000)) % 60000;
+    // ms-into-the-wall-minute at which the announced minute flips. Must use the
+    // same look-ahead as announcedTime(), or we warm the wrong minute and every
+    // break landing in the mismatch window pays for a fresh synthesis.
+    const flipAt = (60000 - (this.aheadMs % 60000)) % 60000;
     const nowInMin = Date.now() % 60000;
     const ms = (((flipAt - nowInMin) % 60000) + 60000) % 60000;
     // At the flip moment ms is 0; wait a full minute rather than tight-looping.
