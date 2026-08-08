@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawnLowPriority } from './spawn-nice';
 import { BaseTtsService } from './base-tts.service';
 
 /**
@@ -22,9 +22,13 @@ export class EspeakTtsService extends BaseTtsService {
 
   protected render(text: string, outPath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const proc = spawn(this.binPath, ['-w', outPath, text], {
+      const proc = spawnLowPriority(this.binPath, ['-w', outPath, text], {
         stdio: ['ignore', 'ignore', 'pipe'],
       });
+      if (!proc.stderr) {
+        reject(new Error('espeak-ng: could not open pipes'));
+        return;
+      }
       let stderr = '';
       proc.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
       proc.on('error', reject);

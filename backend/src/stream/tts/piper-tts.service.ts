@@ -1,6 +1,6 @@
-import { spawn } from 'node:child_process';
 import { basename } from 'node:path';
 import { BaseTtsService } from './base-tts.service';
+import { spawnLowPriority } from './spawn-nice';
 
 /**
  * Piper engine — free, offline, neural (natural voice). Needs the `piper` binary
@@ -37,9 +37,16 @@ export class PiperTtsService extends BaseTtsService {
   protected render(text: string, outPath: string): Promise<void> {
     const modelPath = this.resolveModel();
     return new Promise((resolve, reject) => {
-      const proc = spawn(this.binPath, ['-m', modelPath, '-f', outPath], {
-        stdio: ['pipe', 'ignore', 'pipe'],
-      });
+      // Niced: never let synthesis starve the broadcast (see spawn-nice).
+      const proc = spawnLowPriority(
+        this.binPath,
+        ['-m', modelPath, '-f', outPath],
+        { stdio: ['pipe', 'ignore', 'pipe'] },
+      );
+      if (!proc.stdin || !proc.stderr) {
+        reject(new Error('piper: could not open pipes'));
+        return;
+      }
       let stderr = '';
       proc.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
       proc.on('error', reject);

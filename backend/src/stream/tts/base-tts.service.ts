@@ -23,13 +23,26 @@ export abstract class BaseTtsService implements TtsService {
    * nothing in the common case, since cached clips never reach here.
    */
   private static renderQueue: Promise<unknown> = Promise.resolve();
+  private static queueDepth = 0;
+
+  /**
+   * Whether any synthesis is running or waiting. Optional work (the per-minute
+   * warmer) checks this and steps aside rather than piling on — on a slow host a
+   * queue that never drains keeps the CPU busy indefinitely.
+   */
+  static get busy(): boolean {
+    return BaseTtsService.queueDepth > 0;
+  }
 
   /** Run `task` once every previously queued synthesis has finished. */
   private static enqueue<T>(task: () => Promise<T>): Promise<T> {
+    BaseTtsService.queueDepth += 1;
     const run = BaseTtsService.renderQueue.then(task, task);
     // Keep the chain alive regardless of individual failures.
     BaseTtsService.renderQueue = run.catch(() => undefined);
-    return run;
+    return run.finally(() => {
+      BaseTtsService.queueDepth -= 1;
+    });
   }
 
   /**

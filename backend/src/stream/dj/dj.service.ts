@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { loadStreamConfig, type StreamConfig } from '../stream.config';
 import { StationConfigService } from '../station-config.service';
+import { BaseTtsService } from '../tts/base-tts.service';
 import { TTS_SERVICE, type TtsService } from '../tts/tts.interface';
 import { buildBreakSegments, timeSegment } from './announcements';
 import { formatClock, formatTimePhrase } from './time-announcer';
@@ -206,6 +207,13 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
       ? timeSegment(formatClock(at, zone), this.breakCount)
       : formatTimePhrase(at, zone);
     if (phrase === this.warmedPhrase) return; // already cached this minute
+    // Warming is an optimisation, never worth queueing behind real work: if a
+    // break is already synthesizing, skip this minute rather than keep a slow
+    // host busy. The break itself will synthesize what it needs.
+    if (BaseTtsService.busy) {
+      this.logger.debug('skipping cache warm — synthesis already busy');
+      return;
+    }
     try {
       await this.tts.synthesize(phrase);
       this.warmedPhrase = phrase;
