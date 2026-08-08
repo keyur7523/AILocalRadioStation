@@ -142,10 +142,11 @@ export function loadStreamConfig(): StreamConfig {
     bitrate: process.env.STREAM_BITRATE ?? '128k',
     sampleRate: Number(process.env.STREAM_SAMPLE_RATE ?? 44100),
     restartDelayMs: Number(process.env.STREAM_RESTART_DELAY_MS ?? 1000),
-    // Floored at 1s: a sub-second cushion can pause the decoder before the
-    // encoder has primed, which stalls the pipeline outright — and it would be
-    // too small to absorb anything useful anyway.
-    bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 6)),
+    // Enough to ride out a synthesis or a slow read without the stream dropping
+    // out, without adding needless delay. Floored at 1s: a sub-second cushion
+    // can pause the decoder before the encoder has primed, stalling the
+    // pipeline outright — and it's too small to absorb anything useful anyway.
+    bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 3)),
     station: {
       name: process.env.STATION_NAME ?? 'KIND FM',
       frequency: process.env.STATION_FREQUENCY ?? '98.7',
@@ -177,9 +178,10 @@ export function loadStreamConfig(): StreamConfig {
       overlap: (process.env.DJ_OVERLAP ?? 'false') === 'true',
       gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
-      // A full back-announce is several times longer than a time check, and TTS
-      // runs near real-time on a small host — leave room so the clip is ready.
-      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 12)),
+      // Only the short time line is ever synthesized live (the track lines are
+      // pre-generated into the image), so this needs to cover one brief phrase
+      // plus headroom — not a whole back-announce.
+      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 6)),
       // Player/buffer latency only — the prefetch lead is added on top
       // automatically, so changing the lead can't skew the announced time.
       timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 7)),
