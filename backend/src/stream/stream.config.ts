@@ -33,6 +33,15 @@ export interface StreamConfig {
     /** IANA timezone the DJ announces local time in (DST-aware). */
     timeZone: string;
   };
+  /** Trim dead air from the start/end of songs so the rotation sounds tight. */
+  trim: {
+    /** Master on/off. When false, songs play exactly as-is. */
+    enabled: boolean;
+    /** Level (dBFS) below which audio counts as silence, e.g. -50. */
+    thresholdDb: number;
+    /** Ignore silences shorter than this (seconds) — avoids clipping fades. */
+    minSilenceSec: number;
+  };
   /** DJ interstitial (spoken time-check) settings. */
   dj: {
     /** Master on/off for DJ segments; false = songs only (Phase I behavior). */
@@ -81,6 +90,7 @@ export function describeConfig(c: StreamConfig): string[] {
   return [
     `Station : ${c.station.name} ${c.station.frequency} · ${c.station.city} · TZ=${c.station.timeZone}`,
     `Audio   : ${c.bitrate} @ ${c.sampleRate}Hz · ffmpeg=${c.ffmpegPath} · media=${c.mediaDir}`,
+    `Trim    : ${c.trim.enabled ? `ON (below ${c.trim.thresholdDb}dB for ${c.trim.minSilenceSec}s)` : 'OFF'}`,
     `DJ      : ${c.dj.enabled ? 'ON' : 'OFF'} · every ${c.dj.everyNSongs} song(s) · ` +
       `${c.dj.overlap ? 'overlap/duck' : 'back-to-back'} · gap ${c.dj.gapSec}s · ` +
       `prefetch-lead ${c.dj.prefetchLeadSec}s · time-offset ${c.dj.timeOffsetSec}s`,
@@ -106,6 +116,14 @@ export function loadStreamConfig(): StreamConfig {
       tagline: process.env.STATION_TAGLINE ?? 'your local sound, on a loop',
       city: process.env.STATION_CITY ?? 'Anytown',
       timeZone: process.env.STATION_TIMEZONE ?? 'America/New_York',
+    },
+    trim: {
+      enabled: (process.env.TRIM_SILENCE ?? 'true') !== 'false',
+      thresholdDb: Number(process.env.TRIM_THRESHOLD_DB ?? -50),
+      minSilenceSec: Math.max(
+        0.05,
+        Number(process.env.TRIM_MIN_SILENCE ?? 0.2),
+      ),
     },
     dj: {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',

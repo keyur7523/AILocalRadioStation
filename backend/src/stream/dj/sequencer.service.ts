@@ -22,6 +22,15 @@ type Item =
   | { kind: 'gap' };
 
 /**
+ * Where a track's *audible* content starts and how long it runs, once dead air
+ * at the head/tail is skipped. `duration: null` means "play through to the end".
+ */
+type Trim = { start: number; duration: number | null };
+
+/** No trimming: play the file exactly as-is. */
+const NO_TRIM: Trim = { start: 0, duration: null };
+
+/**
  * The broadcast engine.
  *
  * One long-lived **encoder** ffmpeg reads raw PCM from stdin (paced at real time
@@ -54,6 +63,12 @@ export class SequencerService implements OnModuleDestroy {
   private pendingDj = false;
   /** Guards the inter-item silence so gaps and real items alternate. */
   private lastWasGap = true;
+
+  /**
+   * Per-file trim points, computed once per track and reused. Keyed by path;
+   * holds the in-flight promise so concurrent lookups share one analysis.
+   */
+  private readonly trimCache = new Map<string, Promise<Trim>>();
 
   /** A DJ clip synthesized ahead of the boundary that will consume it. */
   private djPrefetch?: Promise<string | null>;
@@ -116,6 +131,12 @@ export class SequencerService implements OnModuleDestroy {
           : ''),
     );
     for (const s of this.songs) this.logger.verbose(`  track: ${s}`);
+
+    // Warm the trim analysis in the background so later songs never wait on it
+    // (each track is analyzed once; the first song may briefly await its own).
+    if (this.config.trim.enabled) {
+      for (const s of this.songs) void this.trimFor(s);
+    }
 
     // Persistent encoder: raw PCM stdin → continuous MP3 stdout. `-re` on the
     // PCM input makes THIS the single real-time pacer for the whole broadcast:
@@ -211,10 +232,14 @@ export class SequencerService implements OnModuleDestroy {
     let args: string[];
     if (item.kind === 'gap') {
       args = this.silenceDecoderArgs();
-    } else if (item.kind === 'song' && item.talkover) {
-      args =
-        (await this.talkoverArgs(item.path, item.talkover)) ??
-        this.plainDecoderArgs(item.path);
+    } else if (item.kind === 'song') {
+      // Songs skip their dead air; the analysis is cached so this is instant
+      // after a track's first play (and pre-warmed at launch).
+      const trim = await this.trimFor(item.path);
+      args = item.talkover
+        ? ((await this.talkoverArgs(item.path, item.talkover, trim)) ??
+          this.plainDecoderArgs(item.path, trim))
+        : this.plainDecoderArgs(item.path, trim);
     } else {
       args = this.plainDecoderArgs(item.path);
     }
@@ -372,7 +397,7 @@ export class SequencerService implements OnModuleDestroy {
   private schedulePrefetch(song: string): void {
     if (this.djPrefetch || this.djReady !== undefined) return;
     this.clearPrefetchTimer();
-    this.probeDurationSec(song)
+    this.audibleDurationSec(song)
       .then((dur) => {
         if (this.stopping || this.djPrefetch || this.djReady !== undefined) {
           return;
@@ -438,14 +463,20 @@ export class SequencerService implements OnModuleDestroy {
     ];
   }
 
-  /** Plain decode of one file to the shared PCM contract (encoder paces it). */
-  private plainDecoderArgs(path: string): string[] {
+  /**
+   * Plain decode of one file to the shared PCM contract (encoder paces it).
+   * `trim` skips dead air: `-ss` before `-i` seeks past the silent head, `-t`
+   * caps the output so the silent tail is never emitted.
+   */
+  private plainDecoderArgs(path: string, trim: Trim = NO_TRIM): string[] {
     return [
       '-hide_banner',
       '-loglevel',
       'error',
+      ...(trim.start > 0 ? ['-ss', trim.start.toFixed(3)] : []),
       '-i',
       path,
+      ...(trim.duration !== null ? ['-t', trim.duration.toFixed(3)] : []),
       '-vn',
       '-f',
       PCM.format,
@@ -467,12 +498,16 @@ export class SequencerService implements OnModuleDestroy {
   private async talkoverArgs(
     song: string,
     clip: string,
+    trim: Trim = NO_TRIM,
   ): Promise<string[] | null> {
     try {
-      const [songDur, clipDur] = await Promise.all([
+      const [rawSongDur, clipDur] = await Promise.all([
         this.probeDurationSec(song),
         this.probeDurationSec(clip),
       ]);
+      // Time the duck against the *audible* length, so the voice lands over the
+      // real ending rather than over trimmed-away silence.
+      const songDur = trim.duration ?? rawSongDur - trim.start;
       const sr = this.config.sampleRate;
       const startMs = Math.max(
         0,
@@ -490,10 +525,12 @@ export class SequencerService implements OnModuleDestroy {
         '-hide_banner',
         '-loglevel',
         'error',
+        ...(trim.start > 0 ? ['-ss', trim.start.toFixed(3)] : []),
         '-i',
         song,
         '-i',
         clip,
+        ...(trim.duration !== null ? ['-t', trim.duration.toFixed(3)] : []),
         '-filter_complex',
         graph,
         '-map',
@@ -513,6 +550,110 @@ export class SequencerService implements OnModuleDestroy {
       );
       return null;
     }
+  }
+
+  /**
+   * How long a track actually plays for, after trimming — what the DJ prefetch
+   * timer must count against, or it would fire relative to the untrimmed end.
+   */
+  private async audibleDurationSec(path: string): Promise<number> {
+    const [raw, trim] = await Promise.all([
+      this.probeDurationSec(path),
+      this.trimFor(path),
+    ]);
+    return trim.duration ?? raw - trim.start;
+  }
+
+  /**
+   * Trim points for a track, analyzed once and cached (files are static, so the
+   * result never changes). Soft-fails to {@link NO_TRIM} — a failed analysis
+   * just means the track plays untrimmed, never that it stops playing.
+   */
+  private trimFor(path: string): Promise<Trim> {
+    if (!this.config.trim.enabled) return Promise.resolve(NO_TRIM);
+    let pending = this.trimCache.get(path);
+    if (!pending) {
+      pending = this.analyzeTrim(path).catch((err: Error) => {
+        this.logger.warn(`trim analysis failed (${path}): ${err.message}`);
+        return NO_TRIM;
+      });
+      this.trimCache.set(path, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * Find leading/trailing dead air with ffmpeg's `silencedetect`.
+   *
+   * Only silence touching the very start or very end is trimmed — a quiet
+   * passage in the middle of a track is left alone. We analyze up front (rather
+   * than filtering live) because trimming the tail in a filtergraph needs
+   * `areverse`, which buffers the whole track and would stall the item boundary.
+   */
+  private async analyzeTrim(path: string): Promise<Trim> {
+    const { thresholdDb, minSilenceSec } = this.config.trim;
+    const duration = await this.probeDurationSec(path);
+    const log = await this.runFfmpegStderr([
+      '-hide_banner',
+      '-nostats',
+      '-i',
+      path,
+      '-af',
+      `silencedetect=noise=${thresholdDb}dB:d=${minSilenceSec}`,
+      '-f',
+      'null',
+      '-',
+    ]);
+
+    // Pair up "silence_start: X" / "silence_end: Y" lines in order.
+    const periods: { start: number; end: number }[] = [];
+    let open: number | null = null;
+    for (const m of log.matchAll(/silence_(start|end):\s*(-?[\d.]+)/g)) {
+      const value = Number.parseFloat(m[2]);
+      if (!Number.isFinite(value)) continue;
+      if (m[1] === 'start') open = value;
+      else if (open !== null) {
+        periods.push({ start: open, end: value });
+        open = null;
+      }
+    }
+    // A silence still open at EOF runs to the end of the file.
+    if (open !== null) periods.push({ start: open, end: duration });
+
+    const EDGE_TOL = 0.15; // treat "within 150ms of the edge" as touching it
+    const first = periods[0];
+    const last = periods[periods.length - 1];
+    const start = first && first.start <= EDGE_TOL ? first.end : 0;
+    const tailStart =
+      last && last.end >= duration - EDGE_TOL ? last.start : null;
+
+    const audible = (tailStart ?? duration) - start;
+    // Refuse a nonsensical trim (e.g. a near-silent track) — play it whole.
+    if (!Number.isFinite(audible) || audible < 1 || audible < duration * 0.1) {
+      return NO_TRIM;
+    }
+    const trim: Trim = { start, duration: tailStart === null ? null : audible };
+    if (start > 0 || tailStart !== null) {
+      this.logger.log(
+        `✂  trimmed ${path.split('/').pop()}: ` +
+          `head ${start.toFixed(2)}s, tail ${(duration - (tailStart ?? duration)).toFixed(2)}s ` +
+          `(${duration.toFixed(1)}s → ${audible.toFixed(1)}s)`,
+      );
+    }
+    return trim;
+  }
+
+  /** Run ffmpeg purely for its stderr analysis output (e.g. silencedetect). */
+  private runFfmpegStderr(args: string[]): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(this.config.ffmpegPath, args, {
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let err = '';
+      proc.stderr.on('data', (d: Buffer) => (err += d.toString()));
+      proc.on('error', reject);
+      proc.on('close', () => resolve(err));
+    });
   }
 
   /** Probe a media file's duration in seconds via ffprobe. */

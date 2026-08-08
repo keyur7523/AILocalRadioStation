@@ -59,6 +59,7 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 |---|---|---|
 | `STATION_NAME` / `STATION_CITY` / `STATION_FREQUENCY` | `KIND FM` / `Anytown` / `98.7` | On-air identity (also editable at `/admin`) |
 | `STATION_TIMEZONE` | `America/New_York` | IANA zone the DJ announces the time in (also editable at `/admin`) |
+| `TRIM_SILENCE` | `true` | Trim dead air from each song's start/end (mid-song silence is kept) |
 | `DJ_ENABLED` | `true` | Master on/off for the DJ |
 | `DJ_EVERY_N_SONGS` | `1` | Time-check after every N songs |
 | `DJ_OVERLAP` | `false` | `false` = DJ speaks in the gap (tail stays clear); `true` = talk over the fading tail (ducked) |
