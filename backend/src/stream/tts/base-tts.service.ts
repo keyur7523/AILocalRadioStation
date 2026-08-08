@@ -14,6 +14,25 @@ export abstract class BaseTtsService implements TtsService {
   private readonly inFlight = new Map<string, Promise<string>>();
 
   /**
+   * Serializes every synthesis in the process, across engines and callers.
+   *
+   * A neural voice holds its whole model in memory while it runs (hundreds of MB
+   * for a high-quality one). Nothing otherwise stops the per-minute cache warmer
+   * from overlapping a break's synthesis, and two models resident at once can
+   * exhaust a small host — taking the broadcast down with it. Queueing costs
+   * nothing in the common case, since cached clips never reach here.
+   */
+  private static renderQueue: Promise<unknown> = Promise.resolve();
+
+  /** Run `task` once every previously queued synthesis has finished. */
+  private static enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = BaseTtsService.renderQueue.then(task, task);
+    // Keep the chain alive regardless of individual failures.
+    BaseTtsService.renderQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  /**
    * @param engine    short engine id, part of the cache key (e.g. 'espeak')
    * @param extension output file extension (e.g. 'wav')
    * @param cacheDir  directory for cached clips (created if missing)
@@ -60,15 +79,16 @@ export abstract class BaseTtsService implements TtsService {
 
     this.logger.debug(`cache miss — synthesizing "${text}"…`);
     const startedAt = Date.now();
-    const task = this.render(text, outPath)
-      .then(() => {
-        if (!existsSync(outPath)) {
-          throw new Error('TTS produced no output file');
-        }
-        this.logger.log(`synthesized "${text}" in ${Date.now() - startedAt}ms`);
-        return outPath;
-      })
-      .finally(() => this.inFlight.delete(outPath));
+    const task = BaseTtsService.enqueue(async () => {
+      // Another queued job may have produced this exact clip while we waited.
+      if (existsSync(outPath)) return outPath;
+      await this.render(text, outPath);
+      if (!existsSync(outPath)) {
+        throw new Error('TTS produced no output file');
+      }
+      this.logger.log(`synthesized "${text}" in ${Date.now() - startedAt}ms`);
+      return outPath;
+    }).finally(() => this.inFlight.delete(outPath));
 
     this.inFlight.set(outPath, task);
     return task;

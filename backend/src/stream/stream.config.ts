@@ -145,10 +145,11 @@ export function loadStreamConfig(): StreamConfig {
     sampleRate: Number(process.env.STREAM_SAMPLE_RATE ?? 44100),
     restartDelayMs: Number(process.env.STREAM_RESTART_DELAY_MS ?? 1000),
     // Enough to ride out a synthesis or a slow read without the stream dropping
-    // out, without adding needless delay. Floored at 1s: a sub-second cushion
-    // can pause the decoder before the encoder has primed, stalling the
-    // pipeline outright — and it's too small to absorb anything useful anyway.
-    bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 3)),
+    // out. A high-quality voice takes real time to render, so this stays
+    // generous — the cost is only latency and ~0.17 MB per second. Floored at
+    // 1s: a sub-second cushion can pause the decoder before the encoder has
+    // primed, stalling the pipeline outright.
+    bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 8)),
     station: {
       name: process.env.STATION_NAME ?? 'KIND FM',
       frequency: process.env.STATION_FREQUENCY ?? '98.7',
@@ -183,7 +184,7 @@ export function loadStreamConfig(): StreamConfig {
       // Only the short time line is ever synthesized live (the track lines are
       // pre-generated into the image), so this needs to cover one brief phrase
       // plus headroom — not a whole back-announce.
-      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 6)),
+      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 14)),
       // Player/buffer latency only — the prefetch lead is added on top
       // automatically, so changing the lead can't skew the announced time.
       timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 7)),
