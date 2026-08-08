@@ -30,6 +30,14 @@ type Trim = { start: number; duration: number | null };
 /** No trimming: play the file exactly as-is. */
 const NO_TRIM: Trim = { start: 0, duration: null };
 
+/** How to detect dead air, and how much of it to deliberately keep. */
+type TrimOptions = {
+  thresholdDb: number;
+  minSilenceSec: number;
+  /** Silence left at each edge so the cut doesn't sound abrupt. */
+  padSec: number;
+};
+
 /**
  * The broadcast engine.
  *
@@ -241,7 +249,12 @@ export class SequencerService implements OnModuleDestroy {
           this.plainDecoderArgs(item.path, trim))
         : this.plainDecoderArgs(item.path, trim);
     } else {
-      args = this.plainDecoderArgs(item.path);
+      // DJ clip: trimmed gently (see trimForClip); usually already analyzed
+      // when the prefetch resolved, so this is instant.
+      args = this.plainDecoderArgs(
+        item.path,
+        await this.trimForClip(item.path),
+      );
     }
 
     const encoder = this.encoder;
@@ -416,6 +429,9 @@ export class SequencerService implements OnModuleDestroy {
           this.djPrefetch = pending;
           void pending.then((clip) => {
             if (this.djPrefetch === pending) this.djReady = clip;
+            // Analyze the clip now, while the song still plays, so the boundary
+            // doesn't wait on it.
+            if (clip) void this.trimForClip(clip);
           });
         }, delayMs);
       })
@@ -571,9 +587,34 @@ export class SequencerService implements OnModuleDestroy {
    */
   private trimFor(path: string): Promise<Trim> {
     if (!this.config.trim.enabled) return Promise.resolve(NO_TRIM);
+    return this.cachedTrim(path, {
+      thresholdDb: this.config.trim.thresholdDb,
+      minSilenceSec: this.config.trim.minSilenceSec,
+      padSec: 0,
+    });
+  }
+
+  /**
+   * Trim points for a spoken DJ clip. Gentler than music on purpose: a stricter
+   * threshold (so a soft speech onset isn't mistaken for silence) and a guard
+   * pad left at each edge, so the delivery keeps a beat and doesn't sound
+   * clipped. The surrounding `gapSec` still separates it from the music.
+   */
+  private trimForClip(path: string): Promise<Trim> {
+    const { enabled, speech } = this.config.trim;
+    if (!enabled || !speech.enabled) return Promise.resolve(NO_TRIM);
+    return this.cachedTrim(path, {
+      thresholdDb: speech.thresholdDb,
+      minSilenceSec: this.config.trim.minSilenceSec,
+      padSec: speech.padSec,
+    });
+  }
+
+  /** Analyze once per file and reuse; soft-fails to playing the file whole. */
+  private cachedTrim(path: string, opts: TrimOptions): Promise<Trim> {
     let pending = this.trimCache.get(path);
     if (!pending) {
-      pending = this.analyzeTrim(path).catch((err: Error) => {
+      pending = this.analyzeTrim(path, opts).catch((err: Error) => {
         this.logger.warn(`trim analysis failed (${path}): ${err.message}`);
         return NO_TRIM;
       });
@@ -590,8 +631,8 @@ export class SequencerService implements OnModuleDestroy {
    * than filtering live) because trimming the tail in a filtergraph needs
    * `areverse`, which buffers the whole track and would stall the item boundary.
    */
-  private async analyzeTrim(path: string): Promise<Trim> {
-    const { thresholdDb, minSilenceSec } = this.config.trim;
+  private async analyzeTrim(path: string, opts: TrimOptions): Promise<Trim> {
+    const { thresholdDb, minSilenceSec, padSec } = opts;
     const duration = await this.probeDurationSec(path);
     const log = await this.runFfmpegStderr([
       '-hide_banner',
@@ -623,13 +664,25 @@ export class SequencerService implements OnModuleDestroy {
     const EDGE_TOL = 0.15; // treat "within 150ms of the edge" as touching it
     const first = periods[0];
     const last = periods[periods.length - 1];
-    const start = first && first.start <= EDGE_TOL ? first.end : 0;
-    const tailStart =
+    const rawStart = first && first.start <= EDGE_TOL ? first.end : 0;
+    const rawTailStart =
       last && last.end >= duration - EDGE_TOL ? last.start : null;
 
+    // Keep `padSec` of the silence at each edge so the cut never sounds abrupt
+    // (speech especially needs a beat before and after the phrase).
+    const start = Math.max(0, rawStart - padSec);
+    const padded = rawTailStart === null ? null : rawTailStart + padSec;
+    // If the pad reaches the end there's nothing left worth trimming.
+    const tailStart =
+      padded !== null && padded < duration - 0.02 ? padded : null;
+
     const audible = (tailStart ?? duration) - start;
-    // Refuse a nonsensical trim (e.g. a near-silent track) — play it whole.
-    if (!Number.isFinite(audible) || audible < 1 || audible < duration * 0.1) {
+    // Refuse a nonsensical trim (e.g. a near-silent file) — play it whole.
+    if (
+      !Number.isFinite(audible) ||
+      audible < 0.3 ||
+      audible < duration * 0.1
+    ) {
       return NO_TRIM;
     }
     const trim: Trim = { start, duration: tailStart === null ? null : audible };

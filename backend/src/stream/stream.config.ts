@@ -41,6 +41,19 @@ export interface StreamConfig {
     thresholdDb: number;
     /** Ignore silences shorter than this (seconds) — avoids clipping fades. */
     minSilenceSec: number;
+    /**
+     * Trimming for spoken DJ clips. Deliberately gentler than for music: TTS
+     * engines leave a beat of silence around the phrase, but speech fades in
+     * softly, so an aggressive trim clips the first consonant. A stricter
+     * threshold plus a guard pad keeps the delivery natural, not clipped.
+     */
+    speech: {
+      enabled: boolean;
+      /** Stricter than music, so soft speech onsets aren't read as silence. */
+      thresholdDb: number;
+      /** Silence (seconds) deliberately left at each edge to breathe. */
+      padSec: number;
+    };
   };
   /** DJ interstitial (spoken time-check) settings. */
   dj: {
@@ -124,6 +137,11 @@ export function loadStreamConfig(): StreamConfig {
         0.05,
         Number(process.env.TRIM_MIN_SILENCE ?? 0.2),
       ),
+      speech: {
+        enabled: (process.env.TRIM_SPEECH ?? 'true') !== 'false',
+        thresholdDb: Number(process.env.TRIM_SPEECH_THRESHOLD_DB ?? -60),
+        padSec: Math.max(0, Number(process.env.TRIM_SPEECH_PAD ?? 0.12)),
+      },
     },
     dj: {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
