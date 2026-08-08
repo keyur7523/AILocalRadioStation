@@ -21,7 +21,7 @@ export function formatTimePhrase(now: Date, timeZone: string): string {
  * emits a narrow no-break space (U+202F) before AM/PM; we normalize all
  * whitespace to plain spaces so the string is clean for both tests and TTS.
  */
-function formatClock(now: Date, timeZone: string): string {
+export function formatClock(now: Date, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', {
     timeZone,
     hour: 'numeric',

@@ -8,7 +8,15 @@ import {
 import { loadStreamConfig, type StreamConfig } from '../stream.config';
 import { StationConfigService } from '../station-config.service';
 import { TTS_SERVICE, type TtsService } from '../tts/tts.interface';
-import { formatTimePhrase } from './time-announcer';
+import { buildBreakPhrase } from './announcements';
+import { formatClock, formatTimePhrase } from './time-announcer';
+import type { TrackInfo } from './track-info';
+
+/** What the sequencer knows about the break it's asking the DJ to fill. */
+export interface BreakInfo {
+  justPlayed?: TrackInfo | null;
+  nextUp?: TrackInfo | null;
+}
 
 /** Race a promise against a timeout so a hung TTS never stalls the stream. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -43,6 +51,8 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
 
   private warmTimer?: NodeJS.Timeout;
   private warmedPhrase?: string;
+  /** Rotates announcement templates so consecutive breaks aren't identical. */
+  private breakCount = 0;
 
   constructor(
     @Inject(TTS_SERVICE) private readonly tts: TtsService,
@@ -51,25 +61,51 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
 
   /** Start keeping the current (offset-adjusted) minute's clip warm. */
   onModuleInit(): void {
-    if (this.config.dj.enabled) {
-      this.logger.log(
-        `DJ enabled — cache-warming time-checks (TZ=${this.station.timeZone}, ` +
-          `time-offset ${this.config.dj.timeOffsetSec}s)`,
-      );
+    if (!this.config.dj.enabled) {
+      this.logger.log('DJ disabled — songs only');
+      return;
+    }
+    const { announceTracks, timeOffsetSec } = this.config.dj;
+    this.logger.log(
+      `DJ enabled — ${announceTracks ? 'track announcements + time' : 'time checks'} ` +
+        `(TZ=${this.station.timeZone}, time-offset ${timeOffsetSec}s)`,
+    );
+    // Warming only pays off when every break says the same thing. With track
+    // announcements the phrase differs per break, so pre-synthesizing a
+    // time-only clip would just burn CPU; generate-ahead covers that case.
+    if (!announceTracks) {
       void this.warm();
       this.scheduleWarm();
-    } else {
-      this.logger.log('DJ disabled — songs only');
     }
   }
 
   /**
-   * The time we announce: now shifted forward by `timeOffsetSec` to compensate
-   * for pipeline + player latency, so the spoken time matches the listener's
-   * clock when they actually hear the clip (not when it was synthesized).
+   * The time we announce: now shifted forward so the spoken time matches the
+   * listener's clock when they actually *hear* it. Two delays sit between
+   * synthesis and the ear — the generate-ahead lead (the clip is made this long
+   * before it plays) and player/stream buffering (`timeOffsetSec`).
    */
   private announcedTime(): Date {
-    return new Date(Date.now() + this.config.dj.timeOffsetSec * 1000);
+    const { timeOffsetSec, prefetchLeadSec } = this.config.dj;
+    return new Date(Date.now() + (timeOffsetSec + prefetchLeadSec) * 1000);
+  }
+
+  /**
+   * What the DJ says at this break: a full back-announce + time + tease when the
+   * tracks carry metadata, or the plain time check otherwise.
+   */
+  private buildPhrase({ justPlayed, nextUp }: BreakInfo): string {
+    const at = this.announcedTime();
+    const zone = this.station.timeZone;
+    if (!this.config.dj.announceTracks || (!justPlayed && !nextUp)) {
+      return formatTimePhrase(at, zone);
+    }
+    return buildBreakPhrase({
+      justPlayed,
+      nextUp,
+      clock: formatClock(at, zone),
+      seed: this.breakCount++,
+    });
   }
 
   onModuleDestroy(): void {
@@ -94,12 +130,9 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
    * fresh so the spoken time is accurate. Returns the audio file path, or `null`
    * if the DJ is disabled or synthesis fails/times out.
    */
-  async nextInterstitial(): Promise<string | null> {
+  async nextInterstitial(context: BreakInfo = {}): Promise<string | null> {
     if (!this.config.dj.enabled) return null;
-    const phrase = formatTimePhrase(
-      this.announcedTime(),
-      this.station.timeZone,
-    );
+    const phrase = this.buildPhrase(context);
     try {
       const path = await withTimeout(
         this.tts.synthesize(phrase),

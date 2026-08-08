@@ -10,6 +10,7 @@ import {
 } from '../stream.config';
 import { DjService } from './dj.service';
 import { PCM } from './pcm.const';
+import { buildTrackInfo, type TrackInfo } from './track-info';
 
 export interface SequencerHooks {
   /** Called with each MP3 chunk off the persistent encoder. */
@@ -77,6 +78,9 @@ export class SequencerService implements OnModuleDestroy {
    * holds the in-flight promise so concurrent lookups share one analysis.
    */
   private readonly trimCache = new Map<string, Promise<Trim>>();
+
+  /** Per-file track metadata (title/artist), read once from the file's tags. */
+  private readonly trackCache = new Map<string, Promise<TrackInfo | null>>();
 
   /** A DJ clip synthesized ahead of the boundary that will consume it. */
   private djPrefetch?: Promise<string | null>;
@@ -425,7 +429,9 @@ export class SequencerService implements OnModuleDestroy {
         this.prefetchTimer = setTimeout(() => {
           if (this.stopping || this.djPrefetch) return;
           this.logger.verbose('DJ prefetch firing — synthesizing next clip');
-          const pending = this.dj.nextInterstitial();
+          const pending = this.breakContext(song).then((ctx) =>
+            this.dj.nextInterstitial(ctx),
+          );
           this.djPrefetch = pending;
           void pending.then((clip) => {
             if (this.djPrefetch === pending) this.djReady = clip;
@@ -438,6 +444,25 @@ export class SequencerService implements OnModuleDestroy {
       .catch(() => {
         /* can't probe → no prefetch; boundary may skip the check this cycle */
       });
+  }
+
+  /**
+   * What the DJ needs to fill this break: the track finishing now, and the one
+   * queued behind it. `songIndex` has already advanced past `justPlayed`, so it
+   * points at whatever plays after the break.
+   */
+  private async breakContext(
+    justPlayedPath: string,
+  ): Promise<{ justPlayed: TrackInfo | null; nextUp: TrackInfo | null }> {
+    if (!this.config.dj.announceTracks) {
+      return { justPlayed: null, nextUp: null };
+    }
+    const nextPath = this.songs[this.songIndex];
+    const [justPlayed, nextUp] = await Promise.all([
+      this.trackInfoFor(justPlayedPath),
+      nextPath ? this.trackInfoFor(nextPath) : Promise.resolve(null),
+    ]);
+    return { justPlayed, nextUp };
   }
 
   private clearPrefetchTimer(): void {
@@ -694,6 +719,58 @@ export class SequencerService implements OnModuleDestroy {
       );
     }
     return trim;
+  }
+
+  /**
+   * Title/artist for a track, read once from its embedded tags and cached.
+   * Metadata is captured at import time (see `scripts/fetch-playlist.mjs`);
+   * a file without tags falls back to its filename, and anything unusable
+   * yields `null` so the DJ simply gives a plain time check instead.
+   */
+  private trackInfoFor(path: string): Promise<TrackInfo | null> {
+    let pending = this.trackCache.get(path);
+    if (!pending) {
+      pending = this.readTags(path)
+        .then((tags) => buildTrackInfo(tags, path))
+        .catch((err: Error) => {
+          this.logger.warn(`metadata read failed (${path}): ${err.message}`);
+          return null;
+        });
+      this.trackCache.set(path, pending);
+    }
+    return pending;
+  }
+
+  /** Read a file's title/artist tags via ffprobe. */
+  private readTags(path: string): Promise<{ title?: string; artist?: string }> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(
+        this.config.ffprobePath,
+        [
+          '-v',
+          'error',
+          '-show_entries',
+          'format_tags=title,artist',
+          '-of',
+          'json',
+          path,
+        ],
+        { stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+      let out = '';
+      proc.stdout.on('data', (d: Buffer) => (out += d.toString()));
+      proc.on('error', reject);
+      proc.on('close', () => {
+        try {
+          const parsed = JSON.parse(out || '{}') as {
+            format?: { tags?: { title?: string; artist?: string } };
+          };
+          resolve(parsed.format?.tags ?? {});
+        } catch {
+          resolve({});
+        }
+      });
+    });
   }
 
   /** Run ffmpeg purely for its stderr analysis output (e.g. silencedetect). */

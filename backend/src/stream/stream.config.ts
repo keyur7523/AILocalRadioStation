@@ -62,6 +62,12 @@ export interface StreamConfig {
     /** The DJ speaks once every N songs. */
     everyNSongs: number;
     /**
+     * Back-announce the track that just played and tease the next one, using
+     * metadata embedded in the files. Falls back to a plain time check for any
+     * track without usable tags.
+     */
+    announceTracks: boolean;
+    /**
      * Talk OVER the song's fading tail (ducking) vs back-to-back after it.
      * Defaults to `false` (back-to-back) so a song's tail is never ducked
      * unless overlap is explicitly opted into.
@@ -146,11 +152,16 @@ export function loadStreamConfig(): StreamConfig {
     dj: {
       enabled: (process.env.DJ_ENABLED ?? 'true') !== 'false',
       everyNSongs: Math.max(1, Number(process.env.DJ_EVERY_N_SONGS ?? 1)),
+      announceTracks: (process.env.DJ_ANNOUNCE_TRACKS ?? 'true') !== 'false',
       overlap: (process.env.DJ_OVERLAP ?? 'false') === 'true',
       gapSec: Math.max(0, Number(process.env.DJ_GAP ?? 0.5)),
       overlapTailPadSec: Math.max(0, Number(process.env.DJ_TAIL_PAD ?? 0.5)),
-      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 3)),
-      timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 10)),
+      // A full back-announce is several times longer than a time check, and TTS
+      // runs near real-time on a small host — leave room so the clip is ready.
+      prefetchLeadSec: Math.max(0, Number(process.env.DJ_PREFETCH_LEAD ?? 12)),
+      // Player/buffer latency only — the prefetch lead is added on top
+      // automatically, so changing the lead can't skew the announced time.
+      timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 7)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
         process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-medium.onnx',

@@ -37,6 +37,14 @@ const args = [
   'mp3',
   '--audio-quality',
   '0',
+  // Capture title/artist INTO the file at import time — at play time the engine
+  // only has a path, and the DJ needs these to announce the track. Prefer the
+  // real music fields, falling back to the video title / uploader.
+  '--embed-metadata',
+  '--parse-metadata',
+  '%(track,title)s:%(meta_title)s',
+  '--parse-metadata',
+  '%(artist,uploader)s:%(meta_artist)s',
   '--no-playlist-reverse',
   '--ignore-errors', // skip items that can't be fetched (e.g. embedding off)
   '-o',

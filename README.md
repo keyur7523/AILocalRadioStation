@@ -15,7 +15,7 @@ Create a streaming server that loops music and feels like a real local radio sta
 **Shipped**
 
 - 🔴 **One shared live stream** — every listener hears the same moment (a single real-time-paced producer, fanned out to all `/stream` connections).
-- 🎙️ **AI DJ time-check after every song** — speaks the current local time, cleanly between songs (0.5s gap on each side, no talking over the music).
+- 🎙️ **AI DJ break after every song** — back-announces the track that just played, gives the time, and teases what's next ("That was … Right now it's 3:42 PM … Next up, …"), cleanly between songs.
 - 🧠 **Natural neural voice** — [Piper](https://github.com/OHF-Voice/piper1-gpl) by default in production (espeak-ng as a fallback).
 - ⏱️ **Accurate time** — timezone-aware (DST correct) and **latency-compensated** so the spoken time matches your clock when you actually hear it.
 - 🎛️ **Live admin panel** (`/admin`) — switch the station name / city / frequency / tagline and the DJ's timezone on the fly, no restart. Presets for the US time zones.
@@ -61,7 +61,8 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 | `STATION_TIMEZONE` | `America/New_York` | IANA zone the DJ announces the time in (also editable at `/admin`) |
 | `TRIM_SILENCE` | `true` | Trim dead air from each song's start/end (mid-song silence is kept) |
 | `DJ_ENABLED` | `true` | Master on/off for the DJ |
-| `DJ_EVERY_N_SONGS` | `1` | Time-check after every N songs |
+| `DJ_EVERY_N_SONGS` | `1` | DJ break after every N songs |
+| `DJ_ANNOUNCE_TRACKS` | `true` | Back-announce the track that played and tease the next (uses embedded tags) |
 | `DJ_OVERLAP` | `false` | `false` = DJ speaks in the gap (tail stays clear); `true` = talk over the fading tail (ducked) |
 | `DJ_GAP` | `0.5` | Seconds of silence between every item |
 | `DJ_TIME_OFFSET_SEC` | `10` | Shift the announced time forward to cancel pipeline + player latency |
