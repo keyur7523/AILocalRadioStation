@@ -6,24 +6,38 @@ import { BaseTtsService } from './base-tts.service';
  * Piper engine — free, offline, neural (natural voice). Needs the `piper` binary
  * and a `.onnx` voice model provisioned in the image. Reads text on stdin and
  * writes a WAV to `-f`. Enable with DJ_TTS_ENGINE=piper.
+ *
+ * The model is resolved per call rather than fixed at construction, so the voice
+ * can be switched live. Because the cache key includes the voice, each voice
+ * keeps its own clips and switching back is instant.
  */
 export class PiperTtsService extends BaseTtsService {
   private readonly binPath: string;
-  private readonly modelPath: string;
+  private readonly resolveModel: () => string;
 
+  /**
+   * @param resolveModel path to the `.onnx` model, or a function returning it
+   *                     (use the function form to allow live switching)
+   */
   constructor(
     cacheDir: string,
-    modelPath: string,
+    resolveModel: string | (() => string),
     binPath = process.env.PIPER_PATH ?? 'piper',
   ) {
-    super('piper', basename(modelPath), 'wav', cacheDir);
-    this.modelPath = modelPath;
+    super('piper', 'wav', cacheDir);
+    this.resolveModel =
+      typeof resolveModel === 'string' ? () => resolveModel : resolveModel;
     this.binPath = binPath;
   }
 
+  protected get variant(): string {
+    return basename(this.resolveModel(), '.onnx');
+  }
+
   protected render(text: string, outPath: string): Promise<void> {
+    const modelPath = this.resolveModel();
     return new Promise((resolve, reject) => {
-      const proc = spawn(this.binPath, ['-m', this.modelPath, '-f', outPath], {
+      const proc = spawn(this.binPath, ['-m', modelPath, '-f', outPath], {
         stdio: ['pipe', 'ignore', 'pipe'],
       });
       let stderr = '';

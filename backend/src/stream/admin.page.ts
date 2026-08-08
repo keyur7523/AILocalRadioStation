@@ -24,6 +24,9 @@ export const ADMIN_HTML = `<!doctype html>
   .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block;margin-right:6px;vertical-align:middle}
   .dot.on{background:#43c463;box-shadow:0 0 8px #43c463}
   h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 13px}
+  .pick{display:grid;gap:7px;font-size:12px;color:var(--muted)}
+  select{appearance:none;-webkit-appearance:none;background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:12px 13px;font-size:15px;cursor:pointer;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23f2a93b' d='M6 8 0 0h12z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+  select:focus{outline:none;border-color:var(--amber)}
   form{display:grid;gap:12px}
   label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
   input{background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:10px 12px;font-size:14px}
@@ -50,6 +53,13 @@ export const ADMIN_HTML = `<!doctype html>
       <span class="freq" id="cFreq"></span>
       <span class="meta" id="cMeta"></span>
     </div>
+  </div>
+
+  <div class="card">
+    <h2>DJ voice</h2>
+    <label class="pick">Switches live — the next break uses it
+      <select id="voiceSelect"></select>
+    </label>
   </div>
 
   <div class="card">
@@ -91,9 +101,23 @@ export const ADMIN_HTML = `<!doctype html>
     var keys=['name','frequency','city','timeZone','tagline'];
     for(var i=0;i<keys.length;i++){if(f[keys[i]])f[keys[i]].value=s[keys[i]]||''}
   }
+  function renderVoices(list,currentId){
+    var sel=q('voiceSelect');sel.textContent='';
+    if(!list||!list.length){
+      var none=document.createElement('option');none.textContent='(no voices installed)';
+      sel.appendChild(none);sel.disabled=true;return;
+    }
+    for(var i=0;i<list.length;i++){
+      var o=document.createElement('option');o.value=list[i].id;o.textContent=list[i].label;sel.appendChild(o);
+    }
+    if(currentId)sel.value=currentId;
+    sel.onchange=function(){
+      apply({voiceId:sel.value},'DJ voice → '+sel.options[sel.selectedIndex].textContent);
+    };
+  }
   function init(){
     fetch('/admin/config').then(function(r){return r.json()}).then(function(d){
-      renderCurrent(d.station);fillForm(d.station);
+      renderCurrent(d.station);fillForm(d.station);renderVoices(d.voices,d.voiceId);
     }).catch(function(){toast('Could not load config',true)});
   }
   function refresh(){

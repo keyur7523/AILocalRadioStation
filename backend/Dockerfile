@@ -12,19 +12,25 @@ RUN apt-get update \
 # Piper — the neural (natural-sounding) DJ voice. The standalone release is fully
 # self-contained (bundles its own espeak-ng-data + onnxruntime), so no Python
 # toolchain is needed. A medium en_US voice model is baked into the image.
+ARG PIPER_VOICES_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US
 RUN curl -fsSL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
       | tar -xz -C /opt \
   && mkdir -p /app/voices \
-  && curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx?download=true" \
-      -o /app/voices/en_US-lessac-medium.onnx \
-  && curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json?download=true" \
-      -o /app/voices/en_US-lessac-medium.onnx.json
+  # Two high-quality voices; switch between them live from /admin. Any other
+  # .onnx dropped in here is picked up automatically — no code change needed.
+  && for V in lessac/high/en_US-lessac-high ryan/high/en_US-ryan-high; do \
+       curl -fsSL "${PIPER_VOICES_BASE}/${V}.onnx?download=true" \
+         -o "/app/voices/$(basename $V).onnx" \
+       && curl -fsSL "${PIPER_VOICES_BASE}/${V}.onnx.json?download=true" \
+         -o "/app/voices/$(basename $V).onnx.json"; \
+     done
 
 # Use the neural Piper voice by default; espeak-ng stays as the fallback engine.
 # Baked as image ENV so it applies on deploy without needing dashboard/env changes.
 ENV DJ_TTS_ENGINE=piper \
     PIPER_PATH=/opt/piper/piper \
-    DJ_VOICE_MODEL=/app/voices/en_US-lessac-medium.onnx \
+    DJ_VOICES_DIR=/app/voices \
+    DJ_VOICE_MODEL=/app/voices/en_US-lessac-high.onnx \
     DJ_CACHE_DIR=/app/dj-cache
 
 WORKDIR /app

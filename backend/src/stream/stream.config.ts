@@ -105,8 +105,10 @@ export interface StreamConfig {
     timeOffsetSec: number;
     /** Which TTS engine to bind: 'espeak' (default) or 'piper'. */
     ttsEngine: string;
-    /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
+    /** Piper voice model (.onnx) path — the seed/default voice. */
     voiceModelPath: string;
+    /** Folder scanned for installed Piper voices, so they can be switched live. */
+    voicesDir: string;
     /** Directory where synthesized DJ clips are cached. */
     cacheDir: string;
   };
@@ -187,7 +189,8 @@ export function loadStreamConfig(): StreamConfig {
       timeOffsetSec: Math.max(0, Number(process.env.DJ_TIME_OFFSET_SEC ?? 7)),
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
-        process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-medium.onnx',
+        process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-high.onnx',
+      voicesDir: process.env.DJ_VOICES_DIR ?? '/app/voices',
       cacheDir: process.env.DJ_CACHE_DIR ?? join(tmpdir(), 'radio-dj-clips'),
     },
   };

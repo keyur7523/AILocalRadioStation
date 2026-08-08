@@ -15,19 +15,24 @@ export abstract class BaseTtsService implements TtsService {
 
   /**
    * @param engine    short engine id, part of the cache key (e.g. 'espeak')
-   * @param variant   engine variant (e.g. voice name) so a voice change re-synths
    * @param extension output file extension (e.g. 'wav')
    * @param cacheDir  directory for cached clips (created if missing)
    */
   constructor(
     private readonly engine: string,
-    private readonly variant: string,
     private readonly extension: string,
     protected readonly cacheDir: string,
   ) {
     this.logger = new Logger(`Tts:${engine}`);
     mkdirSync(cacheDir, { recursive: true });
   }
+
+  /**
+   * The engine variant (e.g. the voice) at this moment. Read per call, not fixed
+   * at construction, so a voice switched at runtime immediately keys a different
+   * cache entry — clips for each voice coexist and switching back is instant.
+   */
+  protected abstract get variant(): string;
 
   /** Engine-specific synthesis: write `text` as audio to `outPath`. */
   protected abstract render(text: string, outPath: string): Promise<void>;

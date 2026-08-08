@@ -16,7 +16,7 @@ Create a streaming server that loops music and feels like a real local radio sta
 
 - 🔴 **One shared live stream** — every listener hears the same moment (a single real-time-paced producer, fanned out to all `/stream` connections).
 - 🎙️ **AI DJ break after every song** — back-announces the track that just played, gives the time, and teases what's next ("That was … Right now it's 3:42 PM … Next up, …"), cleanly between songs.
-- 🧠 **Natural neural voice** — [Piper](https://github.com/OHF-Voice/piper1-gpl) by default in production (espeak-ng as a fallback).
+- 🧠 **Natural neural voice** — two high-quality [Piper](https://github.com/OHF-Voice/piper1-gpl) voices ship in the image (Lessac and Ryan); switch between them live from `/admin`. espeak-ng is the local-dev fallback.
 - ⏱️ **Accurate time** — timezone-aware (DST correct) and **latency-compensated** so the spoken time matches your clock when you actually hear it.
 - 🎛️ **Live admin panel** (`/admin`) — switch the station name / city / frequency / tagline and the DJ's timezone on the fly, no restart. Presets for the US time zones.
 - 📊 **Comprehensive logging** — the full runtime (songs, DJ, cache, transitions, errors) is visible in the host logs; tune verbosity with `LOG_LEVELS`.
@@ -65,22 +65,28 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 | `DJ_ANNOUNCE_TRACKS` | `true` | Back-announce the track that played and tease the next (uses embedded tags) |
 | `DJ_OVERLAP` | `false` | `false` = DJ speaks in the gap (tail stays clear); `true` = talk over the fading tail (ducked) |
 | `DJ_GAP` | `0.5` | Seconds of silence between every item |
-| `DJ_TIME_OFFSET_SEC` | `10` | Shift the announced time forward to cancel pipeline + player latency |
+| `DJ_TIME_OFFSET_SEC` | `7` | Shift the announced time forward to cancel player buffering (the pipeline's own lead is added automatically) |
 | `DJ_TTS_ENGINE` | `piper` (image) / `espeak` (local) | Voice engine |
+| `DJ_VOICES_DIR` | `/app/voices` | Folder of installed Piper voices; any `.onnx` here is offered at `/admin` |
+| `STREAM_BUFFER_SEC` | `3` | Decoded audio buffered ahead of the encoder, so a CPU spike can't drop the stream |
 | `LOG_LEVELS` | all | `error,warn,log,debug,verbose`; drop levels to quiet the logs |
 
 ### Admin panel
 
-`GET /admin` serves a small web UI to set the station name/city/frequency/tagline and the DJ's timezone (with a US-timezone typeahead). It drives a JSON API you can also call directly:
+`GET /admin` serves a small web UI to set the station name/city/frequency/tagline, the DJ's timezone (with a US-timezone typeahead), and which **DJ voice** is on air. It drives a JSON API you can also call directly:
 
 ```bash
-# current identity
+# current identity + installed voices
 curl -s https://ailocalradiostation-backend.onrender.com/admin/config
 
 # switch the timezone / name live
 curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
   -H 'Content-Type: application/json' \
   -d '{"name":"Radio Chicago","city":"Chicago","timeZone":"America/Chicago"}'
+
+# switch the DJ voice live
+curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
+  -H 'Content-Type: application/json' -d '{"voiceId":"en_US-ryan-high"}'
 ```
 
 Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is persisted to a file (`STATION_STATE_FILE`) so it survives restarts.

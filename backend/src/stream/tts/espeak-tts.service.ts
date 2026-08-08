@@ -8,9 +8,16 @@ import { BaseTtsService } from './base-tts.service';
 export class EspeakTtsService extends BaseTtsService {
   private readonly binPath: string;
 
-  constructor(cacheDir: string, binPath = process.env.ESPEAK_PATH ?? 'espeak-ng') {
-    super('espeak', 'default', 'wav', cacheDir);
+  constructor(
+    cacheDir: string,
+    binPath = process.env.ESPEAK_PATH ?? 'espeak-ng',
+  ) {
+    super('espeak', 'wav', cacheDir);
     this.binPath = binPath;
+  }
+
+  protected get variant(): string {
+    return 'default'; // espeak-ng ships a single voice here
   }
 
   protected render(text: string, outPath: string): Promise<void> {
