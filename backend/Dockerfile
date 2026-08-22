@@ -19,7 +19,14 @@ RUN curl -fsSL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/p
 # this folder), alongside the always-present robotic espeak-ng voice. `medium` is
 # the light default; the `high` models sound better but cost noticeably more CPU
 # per clip, which matters on a small instance.
-ARG VOICES="lessac/medium/en_US-lessac-medium lessac/high/en_US-lessac-high ryan/high/en_US-ryan-high"
+ARG VOICES="\
+  lessac/medium/en_US-lessac-medium \
+  ryan/medium/en_US-ryan-medium \
+  joe/medium/en_US-joe-medium \
+  hfc_female/medium/en_US-hfc_female-medium \
+  amy/medium/en_US-amy-medium \
+  norman/medium/en_US-norman-medium \
+  ryan/high/en_US-ryan-high"
 RUN set -eu; \
   for v in $VOICES; do \
     n=$(basename "$v"); \

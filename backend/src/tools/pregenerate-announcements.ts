@@ -99,7 +99,14 @@ async function main(): Promise<void> {
     phrases.push(...staticSegmentsFor(info));
   }
 
-  const voices = discoverVoices(dj.voicesDir);
+  // Cheapest first: espeak, then `medium` models, then `high`. If the budget
+  // below runs out it is the expensive voices that go uncached, and those are
+  // the ones least likely to be on air on a small instance.
+  const cost = (id: string) =>
+    id === 'espeak' ? 0 : id.endsWith('-high') ? 2 : 1;
+  const voices = discoverVoices(dj.voicesDir).sort(
+    (a, b) => cost(a.id) - cost(b.id),
+  );
   console.log(
     `[pregenerate] ${phrases.length} phrase(s) x ${voices.length} voice(s) -> ${dj.cacheDir}`,
   );
