@@ -107,6 +107,8 @@ export interface StreamConfig {
     ttsEngine: string;
     /** Piper voice model (.onnx) path — only used when ttsEngine is 'piper'. */
     voiceModelPath: string;
+    /** Folder scanned for installed Piper voices, so they can be switched live. */
+    voicesDir: string;
     /** Directory where synthesized DJ clips are cached. */
     cacheDir: string;
   };
@@ -186,6 +188,7 @@ export function loadStreamConfig(): StreamConfig {
       ttsEngine: process.env.DJ_TTS_ENGINE ?? 'espeak',
       voiceModelPath:
         process.env.DJ_VOICE_MODEL ?? '/app/voices/en_US-lessac-medium.onnx',
+      voicesDir: process.env.DJ_VOICES_DIR ?? '/app/voices',
       cacheDir: process.env.DJ_CACHE_DIR ?? join(tmpdir(), 'radio-dj-clips'),
     },
   };

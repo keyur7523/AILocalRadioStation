@@ -9,10 +9,13 @@ import {
 import { ADMIN_HTML } from './admin.page';
 import { StationConfigService } from './station-config.service';
 import type { StationIdentity } from './station-presets';
+import { VoiceConfigService } from './tts/voice-config.service';
 
 interface UpdateStationDto extends Partial<StationIdentity> {
   /** Select a US-timezone preset by id (e.g. "nyc", "cupertino"). */
   presetId?: string;
+  /** Switch the DJ voice by id (e.g. "en_US-ryan-high"). */
+  voiceId?: string;
 }
 
 /**
@@ -25,7 +28,10 @@ interface UpdateStationDto extends Partial<StationIdentity> {
  */
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly station: StationConfigService) {}
+  constructor(
+    private readonly station: StationConfigService,
+    private readonly voices: VoiceConfigService,
+  ) {}
 
   /** The admin web UI (a self-contained page that drives the API below). */
   @Get()
@@ -37,12 +43,18 @@ export class AdminController {
   /** Current identity plus the selectable presets (for building an admin UI). */
   @Get('config')
   getConfig() {
-    return { station: this.station.get(), presets: this.station.presets };
+    return {
+      station: this.station.get(),
+      presets: this.station.presets,
+      voices: this.voices.list(),
+      voiceId: this.voices.current?.id ?? null,
+    };
   }
 
   /**
-   * Update the station — either `{ presetId }` to apply a US-timezone preset, or
-   * any of `{ name, frequency, tagline, city, timeZone }` to set custom values.
+   * Update the station — `{ presetId }` to apply a US-timezone preset, any of
+   * `{ name, frequency, tagline, city, timeZone }` for custom values, and/or
+   * `{ voiceId }` to switch the DJ voice. Voice can be changed on its own.
    */
   @Put('config')
   updateConfig(@Body() body: UpdateStationDto) {
@@ -50,17 +62,24 @@ export class AdminController {
       throw new BadRequestException('Body must be a JSON object');
     }
     try {
+      if (body.voiceId !== undefined) {
+        this.voices.select(body.voiceId);
+      }
       if (body.presetId !== undefined) {
         this.station.applyPreset(body.presetId);
       } else {
         const { name, frequency, tagline, city, timeZone } = body;
         const patch = { name, frequency, tagline, city, timeZone };
-        if (Object.values(patch).every((v) => v === undefined)) {
+        const noStationChange = Object.values(patch).every(
+          (v) => v === undefined,
+        );
+        // A voice-only update is valid; otherwise something must be provided.
+        if (noStationChange && body.voiceId === undefined) {
           throw new BadRequestException(
-            'Provide "presetId" or at least one of name/frequency/tagline/city/timeZone',
+            'Provide "voiceId", "presetId", or at least one of name/frequency/tagline/city/timeZone',
           );
         }
-        this.station.update(patch);
+        if (!noStationChange) this.station.update(patch);
       }
     } catch (err) {
       if (err instanceof BadRequestException) throw err;

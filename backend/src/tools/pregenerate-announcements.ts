@@ -25,7 +25,9 @@ import { join } from 'node:path';
 import { staticSegmentsFor } from '../stream/dj/announcements';
 import { buildTrackInfo } from '../stream/dj/track-info';
 import { loadStreamConfig } from '../stream/stream.config';
-import { createTtsService } from '../stream/tts/tts.provider';
+import { EspeakTtsService } from '../stream/tts/espeak-tts.service';
+import { PiperTtsService } from '../stream/tts/piper-tts.service';
+import { discoverVoices } from '../stream/tts/voices';
 
 /** Read a file's title/artist tags via ffprobe (mirrors the sequencer). */
 function readTags(
@@ -85,36 +87,64 @@ async function main(): Promise<void> {
     return;
   }
 
-  const tts = createTtsService();
-  console.log(
-    `[pregenerate] ${tracks.length} track(s) → cache ${dj.cacheDir} ` +
-      `(engine: ${dj.ttsEngine})`,
-  );
-
-  let made = 0;
-  let failed = 0;
+  // Collect the clock-free lines once, then render them in EVERY installed
+  // voice. Switching voices in the admin then costs nothing at run time.
+  const phrases: string[] = [];
   for (const path of tracks) {
     const info = buildTrackInfo(await readTags(ffprobePath, path), path);
     if (!info) {
       console.log(`[pregenerate] ${path}: no usable metadata — skipping`);
       continue;
     }
-    // Sequential on purpose: a speech engine can hold a few hundred MB, and
-    // build machines are not always roomy.
-    for (const text of staticSegmentsFor(info)) {
+    phrases.push(...staticSegmentsFor(info));
+  }
+
+  const voices = discoverVoices(dj.voicesDir);
+  console.log(
+    `[pregenerate] ${phrases.length} phrase(s) x ${voices.length} voice(s) -> ${dj.cacheDir}`,
+  );
+
+  // Bounded on purpose: this runs inside the image build, and a slow neural
+  // voice can take longer per clip than the clip lasts. Blowing the build
+  // timeout would fail the deploy outright, which is far worse than a voice
+  // that has to synthesize its first few lines live.
+  const budgetMs = Math.max(
+    0,
+    Number(process.env.DJ_PREGENERATE_BUDGET_MS ?? 240000),
+  );
+  const deadline = Date.now() + budgetMs;
+  let made = 0;
+  let failed = 0;
+  let ranOut = false;
+  for (const voice of voices) {
+    if (Date.now() > deadline) {
+      ranOut = true;
+      break;
+    }
+    const tts =
+      voice.engine === 'espeak'
+        ? new EspeakTtsService(dj.cacheDir)
+        : new PiperTtsService(dj.cacheDir, voice.modelPath ?? '');
+    console.log(`[pregenerate] voice ${voice.id} (${voice.engine})`);
+    // Sequential on purpose: a neural voice holds its model while it runs.
+    for (const text of phrases) {
+      if (Date.now() > deadline) {
+        ranOut = true;
+        break;
+      }
       try {
         await tts.synthesize(text);
         made += 1;
-        console.log(`[pregenerate]   ✓ "${text}"`);
       } catch (err) {
         failed += 1;
-        console.warn(`[pregenerate]   ✗ "${text}": ${(err as Error).message}`);
+        console.warn(`[pregenerate]   x "${text}": ${(err as Error).message}`);
       }
     }
   }
   console.log(
     `[pregenerate] done — ${made} clip(s) cached` +
-      (failed ? `, ${failed} failed (will generate live instead)` : ''),
+      (failed ? `, ${failed} failed` : '') +
+      (ranOut ? ` (time budget reached; the rest synthesize live)` : ''),
   );
 }
 

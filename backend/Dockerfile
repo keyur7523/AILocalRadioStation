@@ -14,11 +14,18 @@ RUN apt-get update \
 # toolchain is needed. A medium en_US voice model is baked into the image.
 RUN curl -fsSL https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz \
       | tar -xz -C /opt \
-  && mkdir -p /app/voices \
-  && curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx?download=true" \
-      -o /app/voices/en_US-lessac-medium.onnx \
-  && curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json?download=true" \
-      -o /app/voices/en_US-lessac-medium.onnx.json
+  && mkdir -p /app/voices
+# Voice models. Each is offered in the admin picker automatically (the app scans
+# this folder), alongside the always-present robotic espeak-ng voice. `medium` is
+# the light default; the `high` models sound better but cost noticeably more CPU
+# per clip, which matters on a small instance.
+ARG VOICES="lessac/medium/en_US-lessac-medium lessac/high/en_US-lessac-high ryan/high/en_US-ryan-high"
+RUN set -eu; \
+  for v in $VOICES; do \
+    n=$(basename "$v"); \
+    curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/$v.onnx?download=true" -o "/app/voices/$n.onnx"; \
+    curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/$v.onnx.json?download=true" -o "/app/voices/$n.onnx.json"; \
+  done
 
 # Use the neural Piper voice by default; espeak-ng stays as the fallback engine.
 # Baked as image ENV so it applies on deploy without needing dashboard/env changes.
