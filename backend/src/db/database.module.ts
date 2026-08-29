@@ -2,6 +2,7 @@ import { Global, Module, type OnApplicationShutdown } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import type { DataSource } from 'typeorm';
 import { DATA_SOURCE, databaseProvider } from './database.provider';
+import { DatabaseGateway } from './database.gateway';
 import { SettingsService } from './settings.service';
 
 /**
@@ -14,8 +15,8 @@ import { SettingsService } from './settings.service';
  */
 @Global()
 @Module({
-  providers: [databaseProvider, SettingsService],
-  exports: [DATA_SOURCE, SettingsService],
+  providers: [databaseProvider, DatabaseGateway, SettingsService],
+  exports: [DATA_SOURCE, DatabaseGateway, SettingsService],
 })
 export class DatabaseModule implements OnApplicationShutdown {
   constructor(@Inject(DATA_SOURCE) private readonly ds: DataSource | null) {}
