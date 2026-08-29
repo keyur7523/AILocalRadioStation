@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { SettingsService } from '../db/settings.service';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,17 +18,34 @@ import {
  * change takes effect without restarting the audio engine.
  */
 @Injectable()
-export class StationConfigService {
+export class StationConfigService implements OnModuleInit {
   private readonly logger = new Logger(StationConfigService.name);
+  private static readonly SETTING_KEY = 'station';
   private readonly stateFile =
     process.env.STATION_STATE_FILE ?? join(tmpdir(), 'radio-station.json');
   private identity: StationIdentity;
 
-  constructor() {
+  constructor(private readonly settings: SettingsService) {
     const fromEnv = loadStreamConfig().station;
     this.identity = this.loadPersisted() ?? { ...fromEnv };
     this.logger.log(
       `Station identity: ${this.identity.name} · ${this.identity.city} · ${this.identity.timeZone}`,
+    );
+  }
+
+  /**
+   * Pick up the stored identity once the database is available. The constructor
+   * has already seeded from env, so the station is on air with sane values
+   * before this resolves; this just upgrades to the admin's saved choice.
+   */
+  async onModuleInit(): Promise<void> {
+    const saved = await this.settings.get<StationIdentity>(
+      StationConfigService.SETTING_KEY,
+    );
+    if (!saved) return;
+    this.identity = { ...this.identity, ...saved };
+    this.logger.log(
+      `Station restored from database: ${this.identity.name} · ${this.identity.timeZone}`,
     );
   }
 
@@ -85,6 +103,7 @@ export class StationConfigService {
 
     this.identity = next;
     this.persist();
+    void this.settings.set(StationConfigService.SETTING_KEY, { ...next });
     this.logger.log(
       `Station updated → ${next.name} · ${next.city} · ${next.timeZone}`,
     );

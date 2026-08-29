@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
+import { DatabaseModule } from './db/database.module';
 import { StreamModule } from './stream/stream.module';
 
 @Module({
-  imports: [StreamModule],
+  imports: [DatabaseModule, StreamModule],
 })
 export class AppModule {}

@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { SettingsService } from '../../db/settings.service';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
 import { loadStreamConfig } from '../stream.config';
@@ -12,14 +13,15 @@ import { discoverVoices, ESPEAK_VOICE, type VoiceInfo } from './voices';
  * constructs it directly to pre-generate clips for every installed voice.
  */
 @Injectable()
-export class VoiceConfigService {
+export class VoiceConfigService implements OnModuleInit {
   private readonly logger = new Logger(VoiceConfigService.name);
+  private static readonly SETTING_KEY = 'voice';
   private readonly stateFile =
     process.env.DJ_VOICE_STATE_FILE ?? '/tmp/radio-voice.json';
   private readonly voices: VoiceInfo[];
   private selectedId?: string;
 
-  constructor() {
+  constructor(private readonly settings?: SettingsService) {
     const { dj } = loadStreamConfig();
     this.voices = discoverVoices(dj.voicesDir);
     this.selectedId = this.loadPersisted() ?? this.seedFromEnv(dj);
@@ -36,6 +38,21 @@ export class VoiceConfigService {
     if (dj.ttsEngine === 'espeak') return ESPEAK_VOICE.id;
     const wanted = basename(dj.voiceModelPath, '.onnx');
     return this.voices.find((v) => v.id === wanted)?.id;
+  }
+
+  /**
+   * Adopt the stored voice once the database is up. The constructor already
+   * seeded from env, so the DJ has a voice from the first break regardless.
+   */
+  async onModuleInit(): Promise<void> {
+    const saved = await this.settings?.get<{ voiceId: string }>(
+      VoiceConfigService.SETTING_KEY,
+    );
+    const id = saved?.voiceId;
+    if (id && this.voices.some((v) => v.id === id)) {
+      this.selectedId = id;
+      this.logger.log(`Voice restored from database: ${id}`);
+    }
   }
 
   /** Every installed voice, for the admin UI. */
@@ -70,6 +87,9 @@ export class VoiceConfigService {
     }
     this.selectedId = voice.id;
     this.persist();
+    void this.settings?.set(VoiceConfigService.SETTING_KEY, {
+      voiceId: voice.id,
+    });
     this.logger.log(`DJ voice switched to ${voice.id} (${voice.engine})`);
     return voice;
   }

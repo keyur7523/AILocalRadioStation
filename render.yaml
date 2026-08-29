@@ -40,6 +40,11 @@ services:
       # Half a second of silence between every item (song ↔ time-check ↔ song).
       - key: DJ_GAP
         value: "0.5"
+      # Settings, songs and segues live here. Optional — the stream plays without it.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: kindfm-db
+          property: connectionString
 
   - type: web
     name: kindfm-frontend
@@ -53,3 +58,11 @@ services:
       # Build-time: must equal the backend service's public URL.
       - key: NEXT_PUBLIC_STREAM_BASE
         value: https://ailocalradiostation-backend.onrender.com
+
+# Postgres for the station's settings, songs and segues. The backend treats it
+# as optional: if it is unreachable the stream still plays from env defaults,
+# it just stops remembering changes.
+databases:
+  - name: kindfm-db
+    databaseName: radio
+    plan: free
