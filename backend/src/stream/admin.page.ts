@@ -39,6 +39,25 @@ export const ADMIN_HTML = `<!doctype html>
   .toast.err{border-color:#e0574f}
   a.listen{color:var(--amber);text-decoration:none}
   @media(max-width:520px){.row{grid-template-columns:1fr}}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:600;padding:0 8px 8px 0}
+  td{padding:7px 8px 7px 0;border-top:1px solid var(--line);vertical-align:middle}
+  td input{width:100%;padding:6px 8px;font-size:13px}
+  .num{color:var(--muted);font-variant-numeric:tabular-nums;width:24px}
+  .mini{background:#221d18;border:1px solid var(--line);color:var(--amber);border-radius:7px;padding:5px 9px;cursor:pointer;font-size:12px;white-space:nowrap}
+  .mini:hover{border-color:var(--amber);background:#2a231c}
+  .mini.danger{color:#e0574f}
+  .mini[disabled]{opacity:.5;cursor:default}
+  .skipped td:not(.actions){opacity:.45}
+  .seg{border-top:1px solid var(--line);padding:12px 0;display:grid;gap:8px}
+  .seg textarea{background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;resize:vertical;min-height:52px}
+  .seg textarea:focus{outline:none;border-color:var(--amber)}
+  .segbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .tag{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--amber);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+  .ph{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;color:var(--muted)}
+  .ph b{color:var(--amber2);font-weight:600}
+  .spacer{flex:1}
+  .muted{color:var(--muted);font-size:12px}
 </style>
 </head>
 <body>
@@ -76,6 +95,29 @@ export const ADMIN_HTML = `<!doctype html>
       <label>Tagline<input name="tagline" placeholder="your local sound, on a loop" /></label>
       <button class="save" type="submit">Save</button>
     </form>
+  </div>
+  <div class="card">
+    <h2>Running order</h2>
+    <p class="muted" id="songsNote">Loading…</p>
+    <table id="songsTable" hidden>
+      <thead><tr>
+        <th></th><th>Title</th><th>Artist</th>
+        <th>Say title as</th><th>Say artist as</th><th></th>
+      </tr></thead>
+      <tbody id="songsBody"></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Segues</h2>
+    <p class="muted">What the DJ says around a song. Placeholders:
+      <span class="ph"><b>[SONG NAME]</b> <b>[ARTIST NAME]</b> <b>[TIME]</b></span>
+    </p>
+    <div id="seguesList"></div>
+    <div class="segbar" style="margin-top:14px">
+      <button class="mini" data-add="before">+ line before a song</button>
+      <button class="mini" data-add="after">+ line after a song</button>
+    </div>
   </div>
 </div>
 <datalist id="tzOptions"></datalist>
@@ -140,8 +182,157 @@ export const ADMIN_HTML = `<!doctype html>
     if(Object.keys(body).length===0){toast('Fill at least one field',true);return}
     apply(body,'Station saved');
   });
+
+  // ---- shared -------------------------------------------------------------
+  var audio=new Audio();
+  function say(text,songName,artistName,btn){
+    if(!text||!text.trim()){toast('Nothing to say',true);return}
+    var label=btn?btn.textContent:''; if(btn){btn.disabled=true;btn.textContent='...'}
+    fetch('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({text:text,songName:songName,artistName:artistName})})
+      .then(function(r){
+        if(!r.ok)return r.json().then(function(j){throw new Error(j.message||'Preview failed')});
+        return r.blob();
+      })
+      .then(function(b){audio.src=URL.createObjectURL(b);return audio.play()})
+      .catch(function(e){toast(e.message||'Preview failed',true)})
+      .finally(function(){if(btn){btn.disabled=false;btn.textContent=label}});
+  }
+  function api(method,url,body){
+    return fetch(url,{method:method,headers:{'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):undefined})
+      .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message||'Failed');return j})});
+  }
+  function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
+
+  // ---- running order ------------------------------------------------------
+  var songs=[];
+  function loadSongs(){
+    fetch('/admin/songs').then(function(r){return r.json()}).then(function(d){
+      songs=d.songs||[];
+      var note=q('songsNote'),table=q('songsTable');
+      if(!d.editable){note.textContent='No database connected — the running order is the media folder and cannot be edited.';table.hidden=true;return}
+      if(!songs.length){note.textContent='No songs found in the media folder.';table.hidden=true;return}
+      note.textContent=songs.length+' track(s). Edits save as you leave a field.';
+      table.hidden=false;renderSongs();
+    }).catch(function(){q('songsNote').textContent='Could not load the library.'});
+  }
+  function field(song,key,placeholder){
+    var i=el('input');i.value=song[key]||'';i.placeholder=placeholder||'';
+    i.onchange=function(){
+      var patch={};patch[key]=i.value;
+      api('PATCH','/admin/songs/'+song.id,patch)
+        .then(function(u){song[key]=u[key];toast('Saved')})
+        .catch(function(e){toast(e.message,true);i.value=song[key]||''});
+    };
+    return i;
+  }
+  function renderSongs(){
+    var b=q('songsBody');b.textContent='';
+    songs.forEach(function(song,idx){
+      var tr=el('tr');if(song.skip)tr.className='skipped';
+      tr.appendChild(el('td','num',String(idx+1)));
+      var t=el('td');t.appendChild(field(song,'title'));tr.appendChild(t);
+      var a=el('td');a.appendChild(field(song,'artist','unknown'));tr.appendChild(a);
+      var pt=el('td');pt.appendChild(field(song,'phoneticTitle','optional'));tr.appendChild(pt);
+      var pa=el('td');pa.appendChild(field(song,'phoneticArtist','optional'));tr.appendChild(pa);
+
+      var act=el('td','actions');
+      var bar=el('div','segbar');
+      var bt=el('button','mini','▶ title');
+      bt.title='Hear the DJ say the title';
+      bt.onclick=function(){say(song.phoneticTitle||song.title,null,null,bt)};
+      var ba=el('button','mini','▶ artist');
+      ba.title='Hear the DJ say the artist';
+      ba.onclick=function(){
+        var name=song.phoneticArtist||song.artist;
+        if(!name){toast('No artist set for this track',true);return}
+        say(name,null,null,ba);
+      };
+      var up=el('button','mini','↑');up.disabled=idx===0;
+      up.onclick=function(){move(idx,idx-1)};
+      var dn=el('button','mini','↓');dn.disabled=idx===songs.length-1;
+      dn.onclick=function(){move(idx,idx+1)};
+      var sk=el('button','mini',song.skip?'un-skip':'skip');
+      sk.title=song.skip?'Put back in rotation':'Keep it but stop playing it';
+      sk.onclick=function(){
+        api('PATCH','/admin/songs/'+song.id,{skip:!song.skip}).then(function(u){
+          song.skip=u.skip;renderSongs();toast(u.skip?'Resting '+song.title:'Back in rotation');
+        }).catch(function(e){toast(e.message,true)});
+      };
+      var del=el('button','mini danger','delete');
+      del.onclick=function(){
+        if(!confirm('Remove "'+song.title+'" from the library? The file stays in the image, so it reappears on the next deploy — use skip to rest it for good.'))return;
+        api('DELETE','/admin/songs/'+song.id).then(function(){loadSongs();toast('Removed')})
+          .catch(function(e){toast(e.message,true)});
+      };
+      [bt,ba,up,dn,sk,del].forEach(function(x){bar.appendChild(x)});
+      act.appendChild(bar);tr.appendChild(act);
+      b.appendChild(tr);
+    });
+  }
+  function move(from,to){
+    var copy=songs.slice();var m=copy.splice(from,1)[0];copy.splice(to,0,m);
+    songs=copy;renderSongs();
+    api('POST','/admin/songs/reorder',{ids:copy.map(function(s){return s.id})})
+      .then(function(list){songs=list;renderSongs()})
+      .catch(function(e){toast(e.message,true);loadSongs()});
+  }
+
+  // ---- segues -------------------------------------------------------------
+  function loadSegues(){
+    fetch('/admin/segues').then(function(r){return r.json()}).then(function(d){
+      var list=q('seguesList');list.textContent='';
+      if(!d.editable){list.appendChild(el('p','muted','No database connected — the DJ uses its built-in lines.'));return}
+      if(!d.segues.length){list.appendChild(el('p','muted','No segues yet. Add one below.'));return}
+      d.segues.forEach(function(seg){list.appendChild(segueRow(seg))});
+    }).catch(function(){});
+  }
+  function segueRow(seg){
+    var wrap=el('div','seg');
+    var ta=el('textarea');ta.value=seg.text;
+    ta.onchange=function(){
+      api('PATCH','/admin/segues/'+seg.id,{text:ta.value})
+        .then(function(u){seg.text=u.text;toast('Saved')})
+        .catch(function(e){toast(e.message,true);ta.value=seg.text});
+    };
+    var bar=el('div','segbar');
+    bar.appendChild(el('span','tag',seg.placement==='before'?'before song':'after song'));
+    var play=el('button','mini','▶ hear it');
+    play.onclick=function(){say(ta.value,null,null,play)};
+    var onoff=el('button','mini',seg.enabled?'enabled':'disabled');
+    onoff.onclick=function(){
+      api('PATCH','/admin/segues/'+seg.id,{enabled:!seg.enabled}).then(function(u){
+        seg.enabled=u.enabled;onoff.textContent=u.enabled?'enabled':'disabled';
+        wrap.style.opacity=u.enabled?'1':'.5';
+      }).catch(function(e){toast(e.message,true)});
+    };
+    var del=el('button','mini danger','delete');
+    del.onclick=function(){
+      if(!confirm('Delete this line?'))return;
+      api('DELETE','/admin/segues/'+seg.id).then(function(){loadSegues();toast('Deleted')})
+        .catch(function(e){toast(e.message,true)});
+    };
+    bar.appendChild(play);bar.appendChild(el('span','spacer'));bar.appendChild(onoff);bar.appendChild(del);
+    wrap.appendChild(ta);wrap.appendChild(bar);
+    if(!seg.enabled)wrap.style.opacity='.5';
+    return wrap;
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-add]'),function(btn){
+    btn.onclick=function(){
+      var placement=btn.getAttribute('data-add');
+      var text=placement==='before'?'Next up, [SONG NAME] by [ARTIST NAME].'
+                                   :"That was [SONG NAME] by [ARTIST NAME]. It's [TIME].";
+      api('POST','/admin/segues',{text:text,placement:placement})
+        .then(function(){loadSegues();toast('Line added')})
+        .catch(function(e){toast(e.message,true)});
+    };
+  });
+
   populateTimezones();
   init();
+  loadSongs();
+  loadSegues();
   setInterval(refresh,8000);
 </script>
 </body>
