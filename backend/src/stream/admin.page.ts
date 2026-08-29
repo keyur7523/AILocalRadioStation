@@ -167,12 +167,17 @@ export const ADMIN_HTML = `<!doctype html>
       renderCurrent(d.station);
     }).catch(function(){});
   }
-  function apply(body,okMsg){
+  // refillForm: only after saving the station form itself. Refilling on any
+  // other update (switching voice, say) would overwrite whatever the operator
+  // had half-typed into those fields.
+  function apply(body,okMsg,refillForm){
     fetch('/admin/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})
       .then(function(res){
         if(!res.ok){toast((res.j&&res.j.message)||'Update failed',true);return}
-        renderCurrent(res.j.station);fillForm(res.j.station);toast(okMsg||'Saved')
+        renderCurrent(res.j.station);
+        if(refillForm)fillForm(res.j.station);
+        toast(okMsg||'Saved')
       }).catch(function(){toast('Network error',true)});
   }
   q('customForm').addEventListener('submit',function(e){
@@ -180,7 +185,7 @@ export const ADMIN_HTML = `<!doctype html>
     var fd=new FormData(e.target),body={},keys=['name','frequency','city','timeZone','tagline'];
     for(var i=0;i<keys.length;i++){var v=(fd.get(keys[i])||'').toString().trim();if(v)body[keys[i]]=v}
     if(Object.keys(body).length===0){toast('Fill at least one field',true);return}
-    apply(body,'Station saved');
+    apply(body,'Station saved',true);
   });
 
   // ---- shared -------------------------------------------------------------
