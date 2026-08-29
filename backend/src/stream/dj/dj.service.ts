@@ -8,6 +8,8 @@ import {
 import { loadStreamConfig, type StreamConfig } from '../stream.config';
 import { StationConfigService } from '../station-config.service';
 import { TTS_SERVICE, type TtsService } from '../tts/tts.interface';
+import { SeguesService } from '../../library/segues.service';
+import { renderSegue, splitForCaching } from '../../library/segue-template';
 import { buildBreakSegments, timeSegment } from './announcements';
 import { formatClock, formatTimePhrase } from './time-announcer';
 import type { TrackInfo } from './track-info';
@@ -56,6 +58,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(TTS_SERVICE) private readonly tts: TtsService,
     private readonly station: StationConfigService,
+    private readonly segues: SeguesService,
   ) {}
 
   /** Start keeping the current (offset-adjusted) minute's clip warm. */
@@ -103,18 +106,72 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
    * caches on its own (see `announcements.ts`) — the track lines are identical
    * every time that track comes round, and only the time changes.
    */
-  private buildSegments({ justPlayed, nextUp }: BreakInfo): string[] {
+  private async buildSegments({
+    justPlayed,
+    nextUp,
+  }: BreakInfo): Promise<string[]> {
     const at = this.announcedTime();
     const zone = this.station.timeZone;
     if (!this.config.dj.announceTracks || (!justPlayed && !nextUp)) {
       return [formatTimePhrase(at, zone)];
     }
-    return buildBreakSegments({
-      justPlayed,
-      nextUp,
-      clock: formatClock(at, zone),
-      seed: this.breakCount++,
-    });
+    const clock = formatClock(at, zone);
+    const seed = this.breakCount++;
+
+    const fromConsole = await this.fromSegues(justPlayed, nextUp, clock, seed);
+    if (fromConsole) return fromConsole;
+
+    // No console lines available — fall back to the DJ's built-in patter.
+    return buildBreakSegments({ justPlayed, nextUp, clock, seed });
+  }
+
+  /**
+   * Build the break from the lines the console holds: back-announce the track
+   * that finished, then tease the one coming up. Each rendered line is split
+   * into sentences before synthesis so the parts naming a track cache forever
+   * and only the clock sentence changes — see `splitForCaching`.
+   *
+   * Returns null when there are no usable lines, so the DJ never falls silent
+   * because the segue list was emptied.
+   */
+  private async fromSegues(
+    justPlayed: TrackInfo | null | undefined,
+    nextUp: TrackInfo | null | undefined,
+    clock: string,
+    seed: number,
+  ): Promise<string[] | null> {
+    if (!this.segues.available) return null;
+    const [after, before] = await Promise.all([
+      justPlayed ? this.segues.enabledFor('after') : Promise.resolve([]),
+      nextUp ? this.segues.enabledFor('before') : Promise.resolve([]),
+    ]);
+
+    const segments: string[] = [];
+    if (justPlayed && after.length) {
+      const pick = after[Math.abs(seed) % after.length];
+      segments.push(
+        ...splitForCaching(
+          renderSegue(pick.text, {
+            songName: justPlayed.title,
+            artistName: justPlayed.artist,
+            time: clock,
+          }),
+        ),
+      );
+    }
+    if (nextUp && before.length) {
+      const pick = before[Math.abs(seed) % before.length];
+      segments.push(
+        ...splitForCaching(
+          renderSegue(pick.text, {
+            songName: nextUp.title,
+            artistName: nextUp.artist,
+            time: clock,
+          }),
+        ),
+      );
+    }
+    return segments.length ? segments : null;
   }
 
   onModuleDestroy(): void {
@@ -145,7 +202,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
    */
   async nextInterstitial(context: BreakInfo = {}): Promise<string[] | null> {
     if (!this.config.dj.enabled) return null;
-    const segments = this.buildSegments(context);
+    const segments = await this.buildSegments(context);
     // Deliberately sequential: a speech engine can hold a few hundred MB while
     // it runs, and synthesizing every segment at once would multiply that on a
     // small host. Cached segments resolve instantly, so this costs nothing in

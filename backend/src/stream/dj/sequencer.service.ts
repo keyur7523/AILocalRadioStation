@@ -8,6 +8,8 @@ import {
   loadStreamConfig,
   type StreamConfig,
 } from '../stream.config';
+import type { Song } from '../../db/entities/song.entity';
+import { SongsService } from '../../library/songs.service';
 import { DjService } from './dj.service';
 import { PCM } from './pcm.const';
 import { buildTrackInfo, type TrackInfo } from './track-info';
@@ -67,7 +69,8 @@ export class SequencerService implements OnModuleDestroy {
   private restartTimer?: NodeJS.Timeout;
   private stopping = false;
 
-  private songs: string[] = [];
+  /** Absolute paths of the tracks in play order. */
+  private tracks: string[] = [];
   private songIndex = 0;
   private songsSinceDj = 0;
   private pendingDj = false;
@@ -100,7 +103,10 @@ export class SequencerService implements OnModuleDestroy {
     );
   }
 
-  constructor(private readonly dj: DjService) {}
+  constructor(
+    private readonly dj: DjService,
+    private readonly songs: SongsService,
+  ) {}
 
   start(hooks: SequencerHooks): void {
     this.onChunk = hooks.onChunk;
@@ -108,7 +114,7 @@ export class SequencerService implements OnModuleDestroy {
     this.logger.log('Starting broadcast engine — effective config:');
     for (const line of describeConfig(this.config))
       this.logger.log(`  ${line}`);
-    this.launch();
+    this.relaunch();
   }
 
   onModuleDestroy(): void {
@@ -120,8 +126,28 @@ export class SequencerService implements OnModuleDestroy {
     return !!this.encoder && !this.encoder.killed;
   }
 
-  /** Discover the rotation: every .mp3 in the media folder, in name order. */
-  private resolvePlaylist(): string[] {
+  /**
+   * The running order: the library's playable tracks, in the order the console
+   * set, with rested ones left out. Falls back to the media folder when there is
+   * no database — the station must never be silent for want of a table.
+   */
+  private async resolvePlaylist(): Promise<string[]> {
+    const fromLibrary: Song[] = await this.songs
+      .playable()
+      .catch(() => [] as Song[]);
+    if (fromLibrary.length > 0) {
+      return fromLibrary.map((song) => join(this.config.mediaDir, song.file));
+    }
+    if (this.songs.available) {
+      this.logger.warn(
+        'Library has no playable tracks (all rested?) — falling back to the media folder',
+      );
+    }
+    return this.scanMediaFolder();
+  }
+
+  /** Every .mp3 in the media folder, in name order. */
+  private scanMediaFolder(): string[] {
     const { mediaDir } = this.config;
     if (!existsSync(mediaDir)) {
       throw new Error(`Media directory not found: ${mediaDir}`);
@@ -136,28 +162,28 @@ export class SequencerService implements OnModuleDestroy {
     return files;
   }
 
-  private launch(): void {
+  private async launch(): Promise<void> {
     if (this.stopping) return;
 
     try {
-      this.songs = this.resolvePlaylist();
+      this.tracks = await this.resolvePlaylist();
     } catch (err) {
       this.logger.error((err as Error).message);
       this.scheduleRestart();
       return;
     }
     this.logger.log(
-      `Broadcasting ${this.songs.length} track(s) from ${this.config.mediaDir}` +
+      `Broadcasting ${this.tracks.length} track(s) from ${this.config.mediaDir}` +
         (this.dj.enabled
           ? ` with DJ every ${this.dj.everyNSongs} song(s)`
           : ''),
     );
-    for (const s of this.songs) this.logger.verbose(`  track: ${s}`);
+    for (const s of this.tracks) this.logger.verbose(`  track: ${s}`);
 
     // Warm the trim analysis in the background so later songs never wait on it
     // (each track is analyzed once; the first song may briefly await its own).
     if (this.config.trim.enabled) {
-      for (const s of this.songs) void this.trimFor(s);
+      for (const s of this.tracks) void this.trimFor(s);
     }
 
     // Persistent encoder: raw PCM stdin → continuous MP3 stdout. `-re` on the
@@ -387,9 +413,9 @@ export class SequencerService implements OnModuleDestroy {
       return { kind: 'dj', paths: clip };
     }
 
-    const path = this.songs[this.songIndex];
+    const path = this.tracks[this.songIndex];
     this.lastSongPath = path;
-    this.songIndex = (this.songIndex + 1) % this.songs.length;
+    this.songIndex = (this.songIndex + 1) % this.tracks.length;
     this.songsSinceDj += 1;
 
     const djDue = this.dj.enabled && this.songsSinceDj >= this.dj.everyNSongs;
@@ -508,7 +534,7 @@ export class SequencerService implements OnModuleDestroy {
     if (!this.config.dj.announceTracks) {
       return { justPlayed: null, nextUp: null };
     }
-    const nextPath = this.songs[this.songIndex];
+    const nextPath = this.tracks[this.songIndex];
     const [justPlayed, nextUp] = await Promise.all([
       this.trackInfoFor(justPlayedPath),
       nextPath ? this.trackInfoFor(nextPath) : Promise.resolve(null),
@@ -819,8 +845,11 @@ export class SequencerService implements OnModuleDestroy {
   private trackInfoFor(path: string): Promise<TrackInfo | null> {
     let pending = this.trackCache.get(path);
     if (!pending) {
-      pending = this.readTags(path)
-        .then((tags) => buildTrackInfo(tags, path))
+      pending = this.fromLibrary(path)
+        .then(
+          async (fromDb) =>
+            fromDb ?? buildTrackInfo(await this.readTags(path), path),
+        )
         .catch((err: Error) => {
           this.logger.warn(`metadata read failed (${path}): ${err.message}`);
           return null;
@@ -828,6 +857,22 @@ export class SequencerService implements OnModuleDestroy {
       this.trackCache.set(path, pending);
     }
     return pending;
+  }
+
+  /**
+   * What the console says this track is called — including how to *say* it,
+   * which is the whole point of the phonetic fields. Returns null when there is
+   * no database or no row, so the caller falls back to the file's own tags.
+   */
+  private async fromLibrary(path: string): Promise<TrackInfo | null> {
+    if (!this.songs.available) return null;
+    const file = path.split('/').pop();
+    const row = (await this.songs.list()).find((s) => s.file === file);
+    if (!row) return null;
+    return {
+      title: row.phoneticTitle?.trim() || row.title,
+      artist: row.phoneticArtist?.trim() || row.artist || undefined,
+    };
   }
 
   /** Read a file's title/artist tags via ffprobe. */
@@ -914,11 +959,22 @@ export class SequencerService implements OnModuleDestroy {
     this.decoder = undefined;
   }
 
+  /**
+   * Start the chain, never letting a failure escape as an unhandled rejection —
+   * a broken launch schedules another attempt rather than killing the process.
+   */
+  private relaunch(): void {
+    this.launch().catch((err: Error) => {
+      this.logger.error(`launch failed: ${err.message}`);
+      this.scheduleRestart();
+    });
+  }
+
   private scheduleRestart(): void {
     if (this.stopping) return;
     if (this.restartTimer) clearTimeout(this.restartTimer);
     this.restartTimer = setTimeout(
-      () => this.launch(),
+      () => this.relaunch(),
       this.config.restartDelayMs,
     );
   }

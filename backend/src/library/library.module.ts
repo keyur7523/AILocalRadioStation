@@ -1,17 +1,18 @@
-import { Module } from '@nestjs/common';
-import { StreamModule } from '../stream/stream.module';
-import { LibraryController } from './library.controller';
+import { Global, Module } from '@nestjs/common';
 import { SeguesService } from './segues.service';
 import { SongsService } from './songs.service';
 
 /**
- * The station's library: the running order and the DJ's patter, plus the console
- * that edits them. Imports StreamModule for the TTS voice box, which the preview
- * endpoint uses to audition lines in whatever voice is currently on air.
+ * What the station plays and says, as data.
+ *
+ * Global and deliberately import-free: the broadcast engine reads the running
+ * order and the DJ's lines from here, while the console (a separate module)
+ * edits them through the stream's voice box. Were this module to import
+ * StreamModule for that, the two would depend on each other and Nest could not
+ * decide which to build first.
  */
+@Global()
 @Module({
-  imports: [StreamModule],
-  controllers: [LibraryController],
   providers: [SongsService, SeguesService],
   exports: [SongsService, SeguesService],
 })
