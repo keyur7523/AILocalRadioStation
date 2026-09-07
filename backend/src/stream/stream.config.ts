@@ -31,6 +31,21 @@ export interface StreamConfig {
    * stream goes briefly silent. This is the cushion that absorbs it.
    */
   bufferSec: number;
+  /**
+   * Cloudflare R2 (or any S3-compatible bucket) holding the music. All four
+   * fields must be set for it to be used; otherwise the station plays the media
+   * folder baked into the image, exactly as it always has.
+   */
+  r2: {
+    accountId: string;
+    bucket: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    /** Where downloaded tracks are kept so ffmpeg reads them from disk. */
+    cacheDir: string;
+    /** Optional S3 endpoint override (another provider, or a local server). */
+    endpoint: string;
+  };
   /** On-air identity, surfaced to the player UI and as ICY stream headers. */
   station: {
     name: string;
@@ -123,7 +138,8 @@ export interface StreamConfig {
 export function describeConfig(c: StreamConfig): string[] {
   return [
     `Station : ${c.station.name} ${c.station.frequency} · ${c.station.city} · TZ=${c.station.timeZone}`,
-    `Audio   : ${c.bitrate} @ ${c.sampleRate}Hz · ffmpeg=${c.ffmpegPath} · media=${c.mediaDir}`,
+    `Audio   : ${c.bitrate} @ ${c.sampleRate}Hz · ffmpeg=${c.ffmpegPath}`,
+    `Music   : ${c.r2.bucket ? `R2 bucket "${c.r2.bucket}" (cache ${c.r2.cacheDir})` : c.mediaDir}`,
     `Trim    : ${c.trim.enabled ? `ON (below ${c.trim.thresholdDb}dB for ${c.trim.minSilenceSec}s)` : 'OFF'}`,
     `DJ      : ${c.dj.enabled ? 'ON' : 'OFF'} · every ${c.dj.everyNSongs} song(s) · ` +
       `${c.dj.overlap ? 'overlap/duck' : 'back-to-back'} · gap ${c.dj.gapSec}s · ` +
@@ -148,6 +164,14 @@ export function loadStreamConfig(): StreamConfig {
     // encoder has primed, which stalls the pipeline outright — and it would be
     // too small to absorb anything useful anyway.
     bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 6)),
+    r2: {
+      accountId: process.env.R2_ACCOUNT_ID ?? '',
+      bucket: process.env.R2_BUCKET ?? '',
+      accessKeyId: process.env.R2_ACCESS_KEY_ID ?? '',
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY ?? '',
+      cacheDir: process.env.MEDIA_CACHE_DIR ?? join(tmpdir(), 'radio-media'),
+      endpoint: process.env.R2_ENDPOINT ?? '',
+    },
     station: {
       name: process.env.STATION_NAME ?? 'KIND FM',
       frequency: process.env.STATION_FREQUENCY ?? '98.7',

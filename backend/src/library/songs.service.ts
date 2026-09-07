@@ -1,6 +1,6 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
-import { existsSync, readdirSync } from 'node:fs';
 import { DatabaseGateway } from '../db/database.gateway';
+import { MediaStoreService } from '../media/media-store.service';
 import { Song } from '../db/entities/song.entity';
 import { buildTrackInfo } from '../stream/dj/track-info';
 import { loadStreamConfig } from '../stream/stream.config';
@@ -24,7 +24,10 @@ export class SongsService implements OnModuleInit {
   private readonly mediaDir = loadStreamConfig().mediaDir;
   private readonly ffprobePath = loadStreamConfig().ffprobePath;
 
-  constructor(private readonly db: DatabaseGateway) {}
+  constructor(
+    private readonly db: DatabaseGateway,
+    private readonly media: MediaStoreService,
+  ) {}
 
   get available(): boolean {
     return this.db.available;
@@ -38,12 +41,9 @@ export class SongsService implements OnModuleInit {
     await this.reconcile();
   }
 
-  /** Files currently present in the media folder, in filename order. */
-  private filesOnDisk(): string[] {
-    if (!existsSync(this.mediaDir)) return [];
-    return readdirSync(this.mediaDir)
-      .filter((f) => f.toLowerCase().endsWith('.mp3'))
-      .sort();
+  /** The filenames the library should contain, from wherever music lives. */
+  private filesAvailable(): Promise<string[]> {
+    return this.media.list();
   }
 
   /**
@@ -52,7 +52,7 @@ export class SongsService implements OnModuleInit {
    * Existing rows are left alone so admin edits are never clobbered.
    */
   async reconcile(): Promise<void> {
-    const onDisk = this.filesOnDisk();
+    const onDisk = await this.filesAvailable();
     await this.db.run(async (ds) => {
       const repo = ds.getRepository(Song);
       const rows = await repo.find();

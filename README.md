@@ -62,13 +62,15 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 | `TRIM_SILENCE` | `true` | Trim dead air from each song's start/end (mid-song silence is kept) |
 | `DJ_ENABLED` | `true` | Master on/off for the DJ |
 | `DJ_EVERY_N_SONGS` | `1` | DJ break after every N songs |
+| `R2_BUCKET` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` | — | Play music from an S3-compatible bucket instead of the image; unset = use `media/` |
+| `MEDIA_CACHE_DIR` | tmp | Where bucket tracks are downloaded so ffmpeg reads local disk |
 | `DJ_ANNOUNCE_TRACKS` | `true` | Back-announce the track that played and tease the next (uses embedded tags) |
 | `DJ_OVERLAP` | `false` | `false` = DJ speaks in the gap (tail stays clear); `true` = talk over the fading tail (ducked) |
 | `DJ_GAP` | `0.5` | Seconds of silence between every item |
 | `DJ_TIME_OFFSET_SEC` | `7` | Shift the announced time forward to cancel player buffering (the pipeline's own lead is added automatically) |
 | `DJ_TTS_ENGINE` | `piper` (image) / `espeak` (local) | Voice engine |
 | `DJ_VOICES_DIR` | `/app/voices` | Folder of installed Piper voices; any `.onnx` here is offered at `/admin` |
-| `STREAM_BUFFER_SEC` | `3` | Decoded audio buffered ahead of the encoder, so a CPU spike can't drop the stream |
+| `STREAM_BUFFER_SEC` | `6` | Decoded audio buffered ahead of the encoder, so a CPU spike can't drop the stream |
 | `LOG_LEVELS` | all | `error,warn,log,debug,verbose`; drop levels to quiet the logs |
 
 ### Admin panel

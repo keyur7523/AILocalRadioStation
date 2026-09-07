@@ -1,7 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import {
   describeConfig,
@@ -10,6 +8,7 @@ import {
 } from '../stream.config';
 import type { Song } from '../../db/entities/song.entity';
 import { SongsService } from '../../library/songs.service';
+import { MediaStoreService } from '../../media/media-store.service';
 import { DjService } from './dj.service';
 import { PCM } from './pcm.const';
 import { buildTrackInfo, type TrackInfo } from './track-info';
@@ -106,6 +105,7 @@ export class SequencerService implements OnModuleDestroy {
   constructor(
     private readonly dj: DjService,
     private readonly songs: SongsService,
+    private readonly media: MediaStoreService,
   ) {}
 
   start(hooks: SequencerHooks): void {
@@ -135,31 +135,41 @@ export class SequencerService implements OnModuleDestroy {
     const fromLibrary: Song[] = await this.songs
       .playable()
       .catch(() => [] as Song[]);
-    if (fromLibrary.length > 0) {
-      return fromLibrary.map((song) => join(this.config.mediaDir, song.file));
+    let files = fromLibrary.map((song) => song.file);
+    if (files.length === 0) {
+      if (this.songs.available) {
+        this.logger.warn(
+          'Library has no playable tracks (all rested?) — falling back to every track available',
+        );
+      }
+      files = await this.media.list();
     }
-    if (this.songs.available) {
-      this.logger.warn(
-        'Library has no playable tracks (all rested?) — falling back to the media folder',
-      );
-    }
-    return this.scanMediaFolder();
+    return this.localCopiesOf(files);
   }
 
-  /** Every .mp3 in the media folder, in name order. */
-  private scanMediaFolder(): string[] {
-    const { mediaDir } = this.config;
-    if (!existsSync(mediaDir)) {
-      throw new Error(`Media directory not found: ${mediaDir}`);
+  /**
+   * Absolute paths ffmpeg can open, fetching anything that lives only in the
+   * bucket. Done here, before the encoder starts, so the network is never
+   * touched at an item boundary — a stalled read there is dead air.
+   *
+   * A track that cannot be fetched is dropped from this rotation rather than
+   * failing the launch: better a shorter playlist than a silent station.
+   */
+  private async localCopiesOf(files: string[]): Promise<string[]> {
+    const paths: string[] = [];
+    for (const file of files) {
+      try {
+        paths.push(await this.media.ensureLocal(file));
+      } catch (err) {
+        this.logger.error(
+          `Skipping ${file} — could not fetch it: ${(err as Error).message}`,
+        );
+      }
     }
-    const files = readdirSync(mediaDir)
-      .filter((name) => name.toLowerCase().endsWith('.mp3'))
-      .sort()
-      .map((name) => join(mediaDir, name));
-    if (files.length === 0) {
-      throw new Error(`No .mp3 files found in ${mediaDir}`);
+    if (paths.length === 0) {
+      throw new Error('No playable tracks could be resolved');
     }
-    return files;
+    return paths;
   }
 
   private async launch(): Promise<void> {
@@ -173,7 +183,7 @@ export class SequencerService implements OnModuleDestroy {
       return;
     }
     this.logger.log(
-      `Broadcasting ${this.tracks.length} track(s) from ${this.config.mediaDir}` +
+      `Broadcasting ${this.tracks.length} track(s)` +
         (this.dj.enabled
           ? ` with DJ every ${this.dj.everyNSongs} song(s)`
           : ''),
