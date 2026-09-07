@@ -53,6 +53,16 @@ export class SongsService implements OnModuleInit {
    */
   async reconcile(): Promise<void> {
     const onDisk = await this.filesAvailable();
+    // An empty listing is never trusted to mean "the library is empty". It far
+    // more likely means the bucket was unreachable, or credentials are wrong —
+    // and deleting every row over a transient failure would throw away the
+    // phonetic spellings, running order and skips that cannot be recovered.
+    if (onDisk.length === 0) {
+      this.logger.warn(
+        'No tracks found — leaving the library untouched rather than emptying it',
+      );
+      return;
+    }
     await this.db.run(async (ds) => {
       const repo = ds.getRepository(Song);
       const rows = await repo.find();
