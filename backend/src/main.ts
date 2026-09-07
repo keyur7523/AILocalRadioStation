@@ -1,3 +1,4 @@
+import './load-env';
 import { NestFactory } from '@nestjs/core';
 import { Logger, type LogLevel } from '@nestjs/common';
 import { AppModule } from './app.module';

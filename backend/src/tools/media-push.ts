@@ -8,6 +8,7 @@
  *
  * Usage:  npm run media:push [-- <folder>]     (defaults to ./media)
  */
+import '../load-env';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { MediaStoreService } from '../media/media-store.service';

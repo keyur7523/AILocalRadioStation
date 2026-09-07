@@ -4,6 +4,7 @@
  *
  * Usage:  npm run media:list
  */
+import '../load-env';
 import { MediaStoreService } from '../media/media-store.service';
 import { loadStreamConfig } from '../stream/stream.config';
 

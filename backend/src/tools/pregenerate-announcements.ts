@@ -19,6 +19,7 @@
  * Never fails the build — a station with no tags (or no TTS) simply falls back
  * to generating live, exactly as before.
  */
+import '../load-env';
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
