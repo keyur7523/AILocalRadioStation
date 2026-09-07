@@ -97,7 +97,11 @@ export const ADMIN_HTML = `<!doctype html>
     </form>
   </div>
   <div class="card">
-    <h2>Running order</h2>
+    <div class="segbar" style="margin-bottom:13px">
+      <h2 style="margin:0">Running order</h2>
+      <span class="spacer"></span>
+      <button class="mini" id="rescanBtn" title="Re-read the music source and apply it on air">&#8635; rescan</button>
+    </div>
     <p class="muted" id="songsNote">Loading…</p>
     <table id="songsTable" hidden>
       <thead><tr>
@@ -323,6 +327,19 @@ export const ADMIN_HTML = `<!doctype html>
     if(!seg.enabled)wrap.style.opacity='.5';
     return wrap;
   }
+  q('rescanBtn').onclick=function(){
+    var btn=q('rescanBtn'),label=btn.textContent;
+    btn.disabled=true;btn.textContent='scanning...';
+    api('POST','/admin/songs/rescan').then(function(r){
+      songs=r.songs||[];renderSongs();
+      q('songsNote').textContent=songs.length+' track(s). Edits save as you leave a field.';
+      q('songsTable').hidden=songs.length===0;
+      if(r.refreshError){toast('Catalogued, but the running order needs a restart: '+r.refreshError,true)}
+      else{toast(songs.length+' track(s) - now playing '+r.onAir)}
+    }).catch(function(e){toast(e.message||'Rescan failed',true)})
+      .finally(function(){btn.disabled=false;btn.textContent=label});
+  };
+
   Array.prototype.forEach.call(document.querySelectorAll('[data-add]'),function(btn){
     btn.onclick=function(){
       var placement=btn.getAttribute('data-add');

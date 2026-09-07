@@ -82,6 +82,23 @@ export class MediaStoreService {
   }
 
   /**
+   * What the bucket holds, failing loudly if it cannot be read.
+   *
+   * `list()` deliberately falls back to local files so the broadcast survives an
+   * outage, but that is exactly wrong for uploading: a caller comparing against
+   * a fallback listing would conclude the local files were already uploaded and
+   * silently skip them. Tooling that writes must use this instead.
+   */
+  async listRemote(): Promise<string[]> {
+    if (!this.remote) throw new Error('No bucket configured');
+    const objects = await this.remote.list();
+    return objects
+      .map((o) => o.key)
+      .filter((k) => k.toLowerCase().endsWith('.mp3'))
+      .sort();
+  }
+
+  /**
    * Every track playable without the network: ones already downloaded from the
    * bucket, plus anything shipped in the image.
    *

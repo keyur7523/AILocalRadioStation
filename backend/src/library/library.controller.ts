@@ -15,6 +15,7 @@ import type { Response } from 'express';
 import { createReadStream } from 'node:fs';
 import { Segue } from '../db/entities/segue.entity';
 import { Song } from '../db/entities/song.entity';
+import { SequencerService } from '../stream/dj/sequencer.service';
 import { TTS_SERVICE, type TtsService } from '../stream/tts/tts.interface';
 import { PLACEHOLDERS, renderSegue } from './segue-template';
 import { SeguesService } from './segues.service';
@@ -32,6 +33,7 @@ export class LibraryController {
     private readonly songs: SongsService,
     private readonly segues: SeguesService,
     @Inject(TTS_SERVICE) private readonly tts: TtsService,
+    private readonly sequencer: SequencerService,
   ) {}
 
   /** The running order, plus whether edits are possible at all. */
@@ -41,6 +43,29 @@ export class LibraryController {
       songs: await this.songs.list(),
       editable: this.songs.available,
     };
+  }
+
+  /**
+   * Re-read the music source and pick up the result on air.
+   *
+   * Two steps, because they answer different questions: the reconcile catalogues
+   * anything newly uploaded, and the playlist refresh makes the running order
+   * take effect without waiting for a restart. The refresh is allowed to fail
+   * on its own — cataloguing still succeeded, and the tracks will play after the
+   * next restart regardless.
+   */
+  @Post('songs/rescan')
+  async rescan() {
+    await this.guard(() => this.songs.reconcile());
+    const songs = await this.songs.list();
+    let onAir: number | null = null;
+    let refreshError: string | null = null;
+    try {
+      onAir = await this.sequencer.refreshPlaylist();
+    } catch (err) {
+      refreshError = (err as Error).message;
+    }
+    return { songs, onAir, refreshError };
   }
 
   /** Edit one song: titles, phonetic spellings, or rest it with `skip`. */

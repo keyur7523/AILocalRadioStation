@@ -35,8 +35,9 @@ async function main(): Promise<void> {
   }
 
   const store = new MediaStoreService();
-  // What the bucket already holds, so a re-run only sends what is missing.
-  const existing = new Set(await store.list());
+  // Strictly the bucket's own contents: a fallback listing would name local
+  // files and make every upload look redundant.
+  const existing = new Set(await store.listRemote());
 
   console.log(
     `Pushing ${files.length} file(s) from ${dir} → ${config.r2.bucket}`,

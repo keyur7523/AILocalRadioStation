@@ -148,6 +148,24 @@ export class SequencerService implements OnModuleDestroy {
   }
 
   /**
+   * Re-read the running order while the station stays on air.
+   *
+   * Music added to the bucket, or reordered and rested in the console, would
+   * otherwise wait for the next restart. The swap is deliberately last: the new
+   * list is resolved and downloaded first, so a failure here leaves the current
+   * rotation playing untouched. The item currently on air finishes normally —
+   * only the *next* item comes from the new list.
+   */
+  async refreshPlaylist(): Promise<number> {
+    const next = await this.resolvePlaylist();
+    this.tracks = next;
+    // The list may have shrunk under us; never index off the end.
+    if (this.songIndex >= next.length) this.songIndex = 0;
+    this.logger.log(`Playlist refreshed — ${next.length} track(s)`);
+    return next.length;
+  }
+
+  /**
    * Absolute paths ffmpeg can open, fetching anything that lives only in the
    * bucket. Done here, before the encoder starts, so the network is never
    * touched at an item boundary — a stalled read there is dead air.

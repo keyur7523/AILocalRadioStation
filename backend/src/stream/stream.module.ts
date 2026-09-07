@@ -23,7 +23,8 @@ import { VoiceConfigService } from './tts/voice-config.service';
     DjService,
     ttsProvider,
   ],
-  // The library console previews lines in the on-air voice.
-  exports: [ttsProvider, VoiceConfigService],
+  // The console previews lines in the on-air voice, and refreshes the running
+  // order without a restart.
+  exports: [ttsProvider, VoiceConfigService, SequencerService],
 })
 export class StreamModule {}
