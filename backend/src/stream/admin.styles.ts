@@ -5,6 +5,10 @@
  */
 export const ADMIN_CSS = `  :root{--bg:#100e0c;--panel:#1b1714;--line:#2c2620;--amber:#f2a93b;--amber2:#ffc061;--text:#f3ede4;--muted:#a8998a}
   *{box-sizing:border-box}
+  /* An author \`display\` rule outranks the browser's built-in [hidden] rule, so
+     any element given one stays on screen even when .hidden is set. Enforce it
+     once here rather than remembering to at every call site. */
+  [hidden]{display:none!important}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--text)}
   .wrap{max-width:760px;margin:0 auto;padding:32px 20px 72px}
   h1{font-size:22px;letter-spacing:.02em;margin:0 0 4px}
