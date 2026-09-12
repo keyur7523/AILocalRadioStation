@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Res,
 } from '@nestjs/common';
 import type { Response } from 'express';
@@ -17,6 +18,7 @@ import { Segue } from '../db/entities/segue.entity';
 import { Song } from '../db/entities/song.entity';
 import { SequencerService } from '../stream/dj/sequencer.service';
 import { TTS_SERVICE, type TtsService } from '../stream/tts/tts.interface';
+import { LIBRARY_HTML } from './library.page';
 import { PLACEHOLDERS, renderSegue } from './segue-template';
 import { SeguesService } from './segues.service';
 import { SongsService } from './songs.service';
@@ -37,10 +39,18 @@ export class LibraryController {
   ) {}
 
   /** The running order, plus whether edits are possible at all. */
+  /** The library page — song management lives here rather than on the console. */
+  @Get('library')
+  @Header('Content-Type', 'text/html; charset=utf-8')
+  libraryPage(): string {
+    return LIBRARY_HTML;
+  }
+
+  /** The running order. `?q=` filters by title, artist, spoken spelling or file. */
   @Get('songs')
-  async listSongs() {
+  async listSongs(@Query('q') q?: string) {
     return {
-      songs: await this.songs.list(),
+      songs: q ? await this.songs.search(q) : await this.songs.list(),
       editable: this.songs.available,
     };
   }

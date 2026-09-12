@@ -97,19 +97,14 @@ export const ADMIN_HTML = `<!doctype html>
     </form>
   </div>
   <div class="card">
-    <div class="segbar" style="margin-bottom:13px">
-      <h2 style="margin:0">Running order</h2>
+    <div class="segbar">
+      <div>
+        <h2 style="margin:0 0 4px">Library</h2>
+        <span class="muted" id="libCount">&mdash;</span>
+      </div>
       <span class="spacer"></span>
-      <button class="mini" id="rescanBtn" title="Re-read the music source and apply it on air">&#8635; rescan</button>
+      <a class="mini" href="/admin/library" style="text-decoration:none">open library &#8594;</a>
     </div>
-    <p class="muted" id="songsNote">Loading…</p>
-    <table id="songsTable" hidden>
-      <thead><tr>
-        <th></th><th>Title</th><th>Artist</th>
-        <th>Say title as</th><th>Say artist as</th><th></th>
-      </tr></thead>
-      <tbody id="songsBody"></tbody>
-    </table>
   </div>
 
   <div class="card">
@@ -214,78 +209,14 @@ export const ADMIN_HTML = `<!doctype html>
   }
   function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
 
-  // ---- running order ------------------------------------------------------
-  var songs=[];
-  function loadSongs(){
+  // The rotation is managed at /admin/library; the console just links to it.
+  function loadLibraryCount(){
     fetch('/admin/songs').then(function(r){return r.json()}).then(function(d){
-      songs=d.songs||[];
-      var note=q('songsNote'),table=q('songsTable');
-      if(!d.editable){note.textContent='No database connected — the running order is the media folder and cannot be edited.';table.hidden=true;return}
-      if(!songs.length){note.textContent='No songs found in the media folder.';table.hidden=true;return}
-      note.textContent=songs.length+' track(s). Edits save as you leave a field.';
-      table.hidden=false;renderSongs();
-    }).catch(function(){q('songsNote').textContent='Could not load the library.'});
-  }
-  function field(song,key,placeholder){
-    var i=el('input');i.value=song[key]||'';i.placeholder=placeholder||'';
-    i.onchange=function(){
-      var patch={};patch[key]=i.value;
-      api('PATCH','/admin/songs/'+song.id,patch)
-        .then(function(u){song[key]=u[key];toast('Saved')})
-        .catch(function(e){toast(e.message,true);i.value=song[key]||''});
-    };
-    return i;
-  }
-  function renderSongs(){
-    var b=q('songsBody');b.textContent='';
-    songs.forEach(function(song,idx){
-      var tr=el('tr');if(song.skip)tr.className='skipped';
-      tr.appendChild(el('td','num',String(idx+1)));
-      var t=el('td');t.appendChild(field(song,'title'));tr.appendChild(t);
-      var a=el('td');a.appendChild(field(song,'artist','unknown'));tr.appendChild(a);
-      var pt=el('td');pt.appendChild(field(song,'phoneticTitle','optional'));tr.appendChild(pt);
-      var pa=el('td');pa.appendChild(field(song,'phoneticArtist','optional'));tr.appendChild(pa);
-
-      var act=el('td','actions');
-      var bar=el('div','segbar');
-      var bt=el('button','mini','▶ title');
-      bt.title='Hear the DJ say the title';
-      bt.onclick=function(){say(song.phoneticTitle||song.title,null,null,bt)};
-      var ba=el('button','mini','▶ artist');
-      ba.title='Hear the DJ say the artist';
-      ba.onclick=function(){
-        var name=song.phoneticArtist||song.artist;
-        if(!name){toast('No artist set for this track',true);return}
-        say(name,null,null,ba);
-      };
-      var up=el('button','mini','↑');up.disabled=idx===0;
-      up.onclick=function(){move(idx,idx-1)};
-      var dn=el('button','mini','↓');dn.disabled=idx===songs.length-1;
-      dn.onclick=function(){move(idx,idx+1)};
-      var sk=el('button','mini',song.skip?'un-skip':'skip');
-      sk.title=song.skip?'Put back in rotation':'Keep it but stop playing it';
-      sk.onclick=function(){
-        api('PATCH','/admin/songs/'+song.id,{skip:!song.skip}).then(function(u){
-          song.skip=u.skip;renderSongs();toast(u.skip?'Resting '+song.title:'Back in rotation');
-        }).catch(function(e){toast(e.message,true)});
-      };
-      var del=el('button','mini danger','delete');
-      del.onclick=function(){
-        if(!confirm('Remove "'+song.title+'" from the library? The file stays in the image, so it reappears on the next deploy — use skip to rest it for good.'))return;
-        api('DELETE','/admin/songs/'+song.id).then(function(){loadSongs();toast('Removed')})
-          .catch(function(e){toast(e.message,true)});
-      };
-      [bt,ba,up,dn,sk,del].forEach(function(x){bar.appendChild(x)});
-      act.appendChild(bar);tr.appendChild(act);
-      b.appendChild(tr);
-    });
-  }
-  function move(from,to){
-    var copy=songs.slice();var m=copy.splice(from,1)[0];copy.splice(to,0,m);
-    songs=copy;renderSongs();
-    api('POST','/admin/songs/reorder',{ids:copy.map(function(s){return s.id})})
-      .then(function(list){songs=list;renderSongs()})
-      .catch(function(e){toast(e.message,true);loadSongs()});
+      var n=(d.songs||[]).length,resting=(d.songs||[]).filter(function(s){return s.skip}).length;
+      q('libCount').textContent=!d.editable
+        ? 'No database connected'
+        : n+' track'+(n===1?'':'s')+(resting?' · '+resting+' resting':'');
+    }).catch(function(){q('libCount').textContent='Could not load'});
   }
 
   // ---- segues -------------------------------------------------------------
@@ -327,19 +258,6 @@ export const ADMIN_HTML = `<!doctype html>
     if(!seg.enabled)wrap.style.opacity='.5';
     return wrap;
   }
-  q('rescanBtn').onclick=function(){
-    var btn=q('rescanBtn'),label=btn.textContent;
-    btn.disabled=true;btn.textContent='scanning...';
-    api('POST','/admin/songs/rescan').then(function(r){
-      songs=r.songs||[];renderSongs();
-      q('songsNote').textContent=songs.length+' track(s). Edits save as you leave a field.';
-      q('songsTable').hidden=songs.length===0;
-      if(r.refreshError){toast('Catalogued, but the running order needs a restart: '+r.refreshError,true)}
-      else{toast(songs.length+' track(s) - now playing '+r.onAir)}
-    }).catch(function(e){toast(e.message||'Rescan failed',true)})
-      .finally(function(){btn.disabled=false;btn.textContent=label});
-  };
-
   Array.prototype.forEach.call(document.querySelectorAll('[data-add]'),function(btn){
     btn.onclick=function(){
       var placement=btn.getAttribute('data-add');
@@ -353,7 +271,7 @@ export const ADMIN_HTML = `<!doctype html>
 
   populateTimezones();
   init();
-  loadSongs();
+  loadLibraryCount();
   loadSegues();
   setInterval(refresh,8000);
 </script>

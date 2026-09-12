@@ -4,7 +4,7 @@ A streaming server that sounds like a local music radio station — one shared l
 
 > **This is a living document.** It will change as the project progresses.
 
-📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)** · 🎛️ **[Station admin](https://ailocalradiostation-backend.onrender.com/admin)**
+📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)** · 🎛️ **[Station admin](https://ailocalradiostation-backend.onrender.com/admin)** · 🎵 **[Library](https://ailocalradiostation-backend.onrender.com/admin/library)**
 
 ## Overview
 
@@ -72,6 +72,22 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 | `DJ_VOICES_DIR` | `/app/voices` | Folder of installed Piper voices; any `.onnx` here is offered at `/admin` |
 | `STREAM_BUFFER_SEC` | `6` | Decoded audio buffered ahead of the encoder, so a CPU spike can't drop the stream |
 | `LOG_LEVELS` | all | `error,warn,log,debug,verbose`; drop levels to quiet the logs |
+
+### Library page
+
+`GET /admin/library` is where the rotation is managed: search across titles,
+artists, spoken spellings and filenames; hear how the DJ pronounces any track;
+fix that pronunciation; reorder, rest (`skip`) or remove a song; and rescan the
+music source without a restart. The console links to it.
+
+Search is also available on the API:
+
+```bash
+# every song, in running order
+curl -s .../admin/songs
+# just the ones matching — checks phonetic spellings and filenames too
+curl -s '.../admin/songs?q=daydream'
+```
 
 ### Admin panel
 

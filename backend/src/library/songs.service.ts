@@ -100,6 +100,24 @@ export class SongsService implements OnModuleInit {
     });
   }
 
+  /**
+   * Songs whose title, artist, spoken spelling or filename contain `query`.
+   *
+   * Matching includes the phonetic fields deliberately: if someone has taught
+   * the DJ to say "seven A M", searching for that should find the track even
+   * though no other field contains it.
+   */
+  async search(query: string): Promise<Song[]> {
+    const needle = query.trim().toLowerCase();
+    const songs = await this.list();
+    if (!needle) return songs;
+    return songs.filter((s) =>
+      [s.title, s.artist, s.phoneticTitle, s.phoneticArtist, s.file]
+        .filter((v): v is string => typeof v === 'string')
+        .some((v) => v.toLowerCase().includes(needle)),
+    );
+  }
+
   /** Every song, in running order. */
   async list(): Promise<Song[]> {
     return (
