@@ -870,18 +870,32 @@ export class SequencerService implements OnModuleDestroy {
    * a file without tags falls back to its filename, and anything unusable
    * yields `null` so the DJ simply gives a plain time check instead.
    */
-  private trackInfoFor(path: string): Promise<TrackInfo | null> {
+  private async trackInfoFor(path: string): Promise<TrackInfo | null> {
+    try {
+      // Read the library fresh every time. It holds what the console has been
+      // edited to say — titles, artists and the phonetic spellings whose whole
+      // purpose is to change how a name is pronounced. Caching it meant an edit
+      // never reached the air until a restart, so the DJ kept announcing a name
+      // the console no longer showed. This is a single query at prefetch time,
+      // well away from the audio path.
+      const fromDb = await this.fromLibrary(path);
+      if (fromDb) return fromDb;
+      // Only the file's own tags are worth caching: those cannot change under
+      // a running station without the file itself being replaced.
+      return await this.taggedInfoFor(path);
+    } catch (err) {
+      this.logger.warn(
+        `metadata read failed (${path}): ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /** Title/artist from the file's embedded tags, read once per file. */
+  private taggedInfoFor(path: string): Promise<TrackInfo | null> {
     let pending = this.trackCache.get(path);
     if (!pending) {
-      pending = this.fromLibrary(path)
-        .then(
-          async (fromDb) =>
-            fromDb ?? buildTrackInfo(await this.readTags(path), path),
-        )
-        .catch((err: Error) => {
-          this.logger.warn(`metadata read failed (${path}): ${err.message}`);
-          return null;
-        });
+      pending = this.readTags(path).then((tags) => buildTrackInfo(tags, path));
       this.trackCache.set(path, pending);
     }
     return pending;
