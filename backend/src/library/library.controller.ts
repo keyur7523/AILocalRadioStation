@@ -39,6 +39,27 @@ export class LibraryController {
   ) {}
 
   /** The running order, plus whether edits are possible at all. */
+  /**
+   * What the engine is playing versus what the library says it should.
+   *
+   * These drift by design: the running order is fixed when the broadcast starts,
+   * so skipping or reordering a track changes the console immediately and the
+   * air only at the next rescan. Without this, that gap is invisible and looks
+   * like the wrong song playing.
+   */
+  @Get('onair')
+  async onAir() {
+    const engine = this.sequencer.onAir;
+    const expected = (await this.songs.playable()).map((s) => s.file);
+    return {
+      ...engine,
+      expected,
+      inSync:
+        expected.length === engine.playlist.length &&
+        expected.every((f, i) => f === engine.playlist[i]),
+    };
+  }
+
   /** The library page — song management lives here rather than on the console. */
   @Get('library')
   @Header('Content-Type', 'text/html; charset=utf-8')

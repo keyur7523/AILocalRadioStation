@@ -69,6 +69,14 @@ ${ADMIN_CSS}
       </span>
     </div>
 
+    <div class="notice" id="outOfSync" hidden>
+      <span class="mark">&#8635;</span>
+      <span>
+        <b>The air doesn't match this list yet.</b>
+        <span class="muted" id="outOfSyncDetail"></span>
+      </span>
+    </div>
+
     <div class="toolbar">
       <label class="search">
         <span class="icon">&#9906;</span>
@@ -204,7 +212,7 @@ ${ADMIN_CSS}
       box.onchange=function(){
         var wanted=box.checked;
         api('PATCH','/admin/songs/'+song.id,{skip:wanted}).then(function(u){
-          song.skip=u.skip;render();
+          song.skip=u.skip;render();checkOnAir();
           toast(u.skip?'Skipping '+song.title:song.title+' is back in rotation');
         }).catch(function(e){
           toast(e.message,true);box.checked=!wanted;  // put the tick back
@@ -253,8 +261,22 @@ ${ADMIN_CSS}
     copy.forEach(function(s,i){s.position=i});
     songs=copy;render();
     api('POST','/admin/songs/reorder',{ids:copy.map(function(s){return s.id})})
-      .then(function(list){songs=list;render()})
+      .then(function(list){songs=list;render();checkOnAir()})
       .catch(function(e){toast(e.message,true);load()});
+  }
+
+  // The running order is fixed when the broadcast starts, so skipping or
+  // reordering changes this page at once and the air only at the next rescan.
+  // Say so plainly rather than leaving it looking like the wrong song playing.
+  function checkOnAir(){
+    fetch('/admin/onair').then(function(r){return r.json()}).then(function(d){
+      q('outOfSync').hidden=!!d.inSync;
+      if(d.inSync)return;
+      var playing=d.playing?'Playing '+d.playing+'. ':'';
+      q('outOfSyncDetail').textContent=playing+'The station is running '
+        +d.playlist.length+' track(s) chosen when it last started; this list now has '
+        +d.expected.length+'. Press rescan to put your changes on air.';
+    }).catch(function(){});
   }
 
   function load(){
@@ -269,7 +291,7 @@ ${ADMIN_CSS}
         q('table').hidden=true;return;
       }
       q('note').textContent='Edits save as you leave a field.';
-      render();
+      render();checkOnAir();
     }).catch(function(){q('note').textContent='Could not load the library.'});
   }
 
@@ -292,6 +314,7 @@ ${ADMIN_CSS}
       songs=r.songs||[];
       q('note').textContent='Edits save as you leave a field.';
       render();
+      checkOnAir();
       if(r.refreshError){toast('Catalogued, but the running order needs a restart: '+r.refreshError,true)}
       else{toast(songs.length+' track(s) - now playing '+r.onAir)}
     }).catch(function(e){toast(e.message||'Rescan failed',true)})

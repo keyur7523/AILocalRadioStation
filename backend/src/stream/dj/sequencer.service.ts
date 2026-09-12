@@ -127,6 +127,23 @@ export class SequencerService implements OnModuleDestroy {
   }
 
   /**
+   * What the engine is actually playing, as filenames.
+   *
+   * The running order is resolved when the broadcast starts and only changes on
+   * a rescan, so it can legitimately differ from what the console shows — skip a
+   * track and the engine keeps playing it until told otherwise. Surfacing this
+   * is the only way to tell the two apart from outside.
+   */
+  get onAir(): { playing: string | null; playlist: string[]; index: number } {
+    const name = (p: string) => p.split('/').pop() ?? p;
+    return {
+      playing: this.lastSongPath ? name(this.lastSongPath) : null,
+      playlist: this.tracks.map(name),
+      index: this.songIndex,
+    };
+  }
+
+  /**
    * The running order: the library's playable tracks, in the order the console
    * set, with rested ones left out. Falls back to the media folder when there is
    * no database — the station must never be silent for want of a table.
