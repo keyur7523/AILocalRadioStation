@@ -41,7 +41,7 @@ export const ADMIN_CSS = `  :root{--bg:#100e0c;--panel:#1b1714;--line:#2c2620;--
   .mini:hover{border-color:var(--amber);background:#2a231c}
   .mini.danger{color:#e0574f}
   .mini[disabled]{opacity:.5;cursor:default}
-  .skipped td:not(.actions){opacity:.45}
+  .skipped td:not(.actions):not(.skipcell){opacity:.45}
   .seg{border-top:1px solid var(--line);padding:12px 0;display:grid;gap:8px}
   .seg textarea{background:#0e0c0a;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px 11px;font:inherit;font-size:13px;resize:vertical;min-height:52px}
   .seg textarea:focus{outline:none;border-color:var(--amber)}

@@ -30,10 +30,18 @@ ${ADMIN_CSS}
   .count{color:var(--muted);font-size:12px;white-space:nowrap}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
   .filename{color:var(--muted);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  tr.skipped .badge{display:inline-block}
-  .badge{display:none;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#e0a24f;border:1px solid #4a3a22;border-radius:20px;padding:1px 7px;margin-left:7px;vertical-align:middle}
   mark{background:#4a3a1a;color:var(--amber2);border-radius:3px;padding:0 2px}
   .backlink{color:var(--amber);text-decoration:none;font-size:13px}
+  .skipcell{text-align:center;width:52px}
+  .skipcell input{appearance:none;-webkit-appearance:none;width:17px;height:17px;border:1px solid var(--line);border-radius:5px;background:#0e0c0a;cursor:pointer;position:relative;vertical-align:middle;padding:0}
+  .skipcell input:hover{border-color:var(--amber)}
+  .skipcell input:checked{background:var(--amber);border-color:var(--amber)}
+  .skipcell input:checked::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#1a1206;font-size:12px;font-weight:700}
+  .skipcell input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .notice{display:flex;gap:11px;align-items:flex-start;background:#241d15;border:1px solid #4a3a22;border-radius:10px;padding:13px 15px;margin-bottom:16px;font-size:13px;line-height:1.5}
+  .notice .mark{color:var(--amber2);font-size:15px;line-height:1.2}
+  .notice b{color:var(--amber2);font-weight:600}
+  .notice .muted{display:block;margin-top:4px}
   /* The row's controls read as one group; let the table scroll rather than
      wrapping them onto a second line on a narrow screen. */
   .scroller{overflow-x:auto}
@@ -51,6 +59,16 @@ ${ADMIN_CSS}
   </p>
 
   <div class="card">
+    <div class="notice" id="allSkipped" hidden>
+      <span class="mark">&#9888;</span>
+      <span>
+        <b>Every track is skipped.</b>
+        <span class="muted">A station can't broadcast silence, so the rotation falls back to
+        playing all of them anyway — skipping everything is the same as skipping nothing.
+        Untick the tracks you do want on air.</span>
+      </span>
+    </div>
+
     <div class="toolbar">
       <label class="search">
         <span class="icon">&#9906;</span>
@@ -66,7 +84,8 @@ ${ADMIN_CSS}
     <table id="table" hidden>
       <thead><tr>
         <th></th><th>Title</th><th>Artist</th>
-        <th>Say title as</th><th>Say artist as</th><th></th>
+        <th>Say title as</th><th>Say artist as</th>
+        <th class="skipcell" title="Tick to keep the track but stop playing it">Skip</th><th></th>
       </tr></thead>
       <tbody id="body"></tbody>
     </table>
@@ -133,9 +152,14 @@ ${ADMIN_CSS}
 
   function render(){
     var shown=songs.filter(matches);
+    var skipped=songs.filter(function(s){return s.skip}).length;
+    // Resting everything is a no-op the engine quietly undoes, so say so rather
+    // than letting the operator believe they have taken the station off music.
+    q('allSkipped').hidden=!(songs.length>0&&skipped===songs.length);
     q('count').textContent=filter
       ? shown.length+' of '+songs.length
-      : songs.length+' track'+(songs.length===1?'':'s');
+      : songs.length+' track'+(songs.length===1?'':'s')
+        +(skipped?' · '+skipped+' skipped':'');
     q('empty').hidden=shown.length>0||songs.length===0;
     if(shown.length===0&&songs.length>0){
       q('empty').textContent='No track matches "'+filter+'".';
@@ -150,7 +174,6 @@ ${ADMIN_CSS}
       var t=el('td');
       if(filter){
         var wrap=el('div');highlight(wrap,song.title);
-        wrap.appendChild(el('span','badge','resting'));
         var fn=el('div','filename');highlight(fn,song.file);
         t.appendChild(wrap);t.appendChild(fn);
       } else {
@@ -172,6 +195,22 @@ ${ADMIN_CSS}
       if(filter){highlight(pa,song.phoneticArtist||'')}
       else{pa.appendChild(field(song,'phoneticArtist','optional'))}
       tr.appendChild(pa);
+
+      var skipTd=el('td','skipcell');
+      var box=el('input');box.type='checkbox';box.checked=!!song.skip;
+      box.title=song.skip
+        ? 'Ticked: skipped. Untick to put it back in the rotation.'
+        : 'Tick to keep the track but stop playing it.';
+      box.onchange=function(){
+        var wanted=box.checked;
+        api('PATCH','/admin/songs/'+song.id,{skip:wanted}).then(function(u){
+          song.skip=u.skip;render();
+          toast(u.skip?'Skipping '+song.title:song.title+' is back in rotation');
+        }).catch(function(e){
+          toast(e.message,true);box.checked=!wanted;  // put the tick back
+        });
+      };
+      skipTd.appendChild(box);tr.appendChild(skipTd);
 
       var act=el('td','actions'),bar=el('div','segbar');
       var bt=el('button','mini','▶ title');
@@ -197,20 +236,13 @@ ${ADMIN_CSS}
         bar.appendChild(up);bar.appendChild(dn);
       }
 
-      var sk=el('button','mini',song.skip?'un-skip':'skip');
-      sk.title=song.skip?'Put back in rotation':'Keep it but stop playing it';
-      sk.onclick=function(){
-        api('PATCH','/admin/songs/'+song.id,{skip:!song.skip}).then(function(u){
-          song.skip=u.skip;render();toast(u.skip?'Resting '+song.title:'Back in rotation');
-        }).catch(function(e){toast(e.message,true)});
-      };
       var del=el('button','mini danger','delete');
       del.onclick=function(){
         if(!confirm('Remove "'+song.title+'" from the library? The file itself is left alone, so a rescan brings it back — use skip to rest it for good.'))return;
         api('DELETE','/admin/songs/'+song.id).then(function(){load();toast('Removed')})
           .catch(function(e){toast(e.message,true)});
       };
-      bar.appendChild(sk);bar.appendChild(del);
+      bar.appendChild(del);
       act.appendChild(bar);tr.appendChild(act);
       b.appendChild(tr);
     });

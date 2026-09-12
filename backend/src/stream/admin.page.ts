@@ -212,10 +212,10 @@ export const ADMIN_HTML = `<!doctype html>
   // The rotation is managed at /admin/library; the console just links to it.
   function loadLibraryCount(){
     fetch('/admin/songs').then(function(r){return r.json()}).then(function(d){
-      var n=(d.songs||[]).length,resting=(d.songs||[]).filter(function(s){return s.skip}).length;
+      var n=(d.songs||[]).length,skipped=(d.songs||[]).filter(function(s){return s.skip}).length;
       q('libCount').textContent=!d.editable
         ? 'No database connected'
-        : n+' track'+(n===1?'':'s')+(resting?' · '+resting+' resting':'');
+        : n+' track'+(n===1?'':'s')+(skipped?' · '+skipped+' skipped':'');
     }).catch(function(){q('libCount').textContent='Could not load'});
   }
 
