@@ -4,7 +4,7 @@ A streaming server that sounds like a local music radio station — one shared l
 
 > **This is a living document.** It will change as the project progresses.
 
-📡 **[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · 🎧 **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)** · 🎛️ **[Station admin](https://ailocalradiostation-backend.onrender.com/admin)** · 🎵 **[Library](https://ailocalradiostation-backend.onrender.com/admin/library)**
+**[Live status page](https://keyur7523.github.io/AILocalRadioStation/)** · **[Listen to the stream](https://ailocalradiostation-backend.onrender.com/stream)** · **[Station admin](https://ailocalradiostation-backend.onrender.com/admin)** · **[Library](https://ailocalradiostation-backend.onrender.com/admin/library)**
 
 ## Overview
 
@@ -14,15 +14,15 @@ Create a streaming server that loops music and feels like a real local radio sta
 
 **Shipped**
 
-- 🔴 **One shared live stream** — every listener hears the same moment (a single real-time-paced producer, fanned out to all `/stream` connections).
-- 🎙️ **AI DJ break after every song** — back-announces the track that just played, gives the time, and teases what's next ("That was … Right now it's 3:42 PM … Next up, …"), cleanly between songs.
-- 🧠 **Natural neural voice** — two high-quality [Piper](https://github.com/OHF-Voice/piper1-gpl) voices ship in the image (Lessac and Ryan); switch between them live from `/admin`. espeak-ng is the local-dev fallback.
-- ⏱️ **Accurate time** — timezone-aware (DST correct) and **latency-compensated** so the spoken time matches your clock when you actually hear it.
-- 🎛️ **Live admin panel** (`/admin`) — switch the station name / city / frequency / tagline and the DJ's timezone on the fly, no restart. Presets for the US time zones.
-- 📊 **Comprehensive logging** — the full runtime (songs, DJ, cache, transitions, errors) is visible in the host logs; tune verbosity with `LOG_LEVELS`.
-- 🟢 **Independent status page** — up/down monitoring hosted off-Render (GitHub Pages + Actions).
+- **One shared live stream** — every listener hears the same moment (a single real-time-paced producer, fanned out to all `/stream` connections).
+- **AI DJ break after every song** — back-announces the track that just played, gives the time, and teases what's next ("That was … Right now it's 3:42 PM … Next up, …"), cleanly between songs.
+- **Selectable DJ voices** — seven neural [Piper](https://github.com/OHF-Voice/piper1-gpl) voices plus a robotic espeak-ng one ship in the image; switch between them live from `/admin`.
+- **Accurate time** — timezone-aware (DST correct) and **latency-compensated** so the spoken time matches your clock when you actually hear it.
+- **Live admin panel** (`/admin`) — switch the station name / city / frequency / tagline and the DJ's timezone on the fly, no restart. Presets for the US time zones.
+- **Comprehensive logging** — the full runtime (songs, DJ, cache, transitions, errors) is visible in the host logs; tune verbosity with `LOG_LEVELS`.
+- **Independent status page** — up/down monitoring hosted off-Render (GitHub Pages + Actions).
 
-**Planned** — song name/artist announcements, weather & news at the top of the hour, local events, scheduled station-ID jingles, a now-playing feed, song requests.
+**Planned** — weather & news at the top of the hour, local events, scheduled station-ID jingles, a now-playing feed, song requests.
 
 ## Architecture
 
@@ -107,9 +107,9 @@ curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
   -H 'Content-Type: application/json' -d '{"voiceId":"en_US-ryan-high"}'
 ```
 
-Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is persisted to a file (`STATION_STATE_FILE`) so it survives restarts.
+Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is stored in Postgres when `DATABASE_URL` is set, so it survives restarts and redeploys.
 
-> ⚠️ The admin endpoints are currently **unauthenticated**. Put them behind an auth guard before exposing the backend publicly.
+> **Note:** the admin endpoints are currently **unauthenticated**. Put them behind an auth guard before exposing the backend publicly.
 
 ## Tech stack
 
