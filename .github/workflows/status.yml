@@ -27,6 +27,10 @@ concurrency:
 jobs:
   status:
     runs-on: ubuntu-latest
+    # A run normally takes under a minute. Without a limit GitHub allows six
+    # hours, and with the concurrency group above one stuck run would hold the
+    # queue — the page would silently stop updating.
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}

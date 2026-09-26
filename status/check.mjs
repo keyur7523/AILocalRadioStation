@@ -24,6 +24,7 @@ const PAGES_URL = process.env.STATUS_PAGES_URL ?? ''; // e.g. https://user.githu
 
 const TIMEOUT_MS = 25000; // Render free tier can cold-start slowly
 const DEGRADED_MS = 8000; // slower than this reads as degraded
+const AUDIO_WAIT_MS = 15000; // after headers, how long to wait for audio
 const DAYS = 90;
 
 /** The components shown on the page, each with how to verify it. */
@@ -72,10 +73,19 @@ async function checkComponent(c) {
     if (c.kind === 'stream') {
       const type = res.headers.get('content-type') ?? '';
       if (!type.includes('audio')) return down(c, `unexpected type ${type}`, ms);
+      // The timeout above only covered the response headers, and /stream sends
+      // those at once even when the encoder is dead. Waiting for the first
+      // audio chunk needs its own limit, or "connected but silent" — the very
+      // failure this check exists to catch — hangs the run instead of
+      // reporting it.
       const reader = res.body.getReader();
-      const { value } = await reader.read();
-      await reader.cancel();
-      if (!value || value.length === 0) return down(c, 'no audio data', ms);
+      const first = await Promise.race([
+        reader.read(),
+        new Promise((resolve) => setTimeout(() => resolve(null), AUDIO_WAIT_MS)),
+      ]);
+      await reader.cancel().catch(() => {});
+      if (first === null) return down(c, 'connected but no audio', ms);
+      if (!first.value || first.value.length === 0) return down(c, 'no audio data', ms);
       return ok(c, ms);
     }
     if (c.kind === 'health') {
