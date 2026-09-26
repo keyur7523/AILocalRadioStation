@@ -13,11 +13,14 @@ interface StationInfo {
   online: boolean;
 }
 
+// Blank until the backend answers. The station's identity is set in the admin
+// panel, so any hardcoded name here would be shown to every visitor as the wrong
+// one until the first poll landed — several seconds on a cold start.
 const DEFAULT_STATION: StationInfo = {
-  name: "KIND FM",
-  frequency: "98.7",
-  tagline: "your local sound, on a loop",
-  city: "Anytown",
+  name: "",
+  frequency: "",
+  tagline: "",
+  city: "",
   listeners: 0,
   online: false,
 };
@@ -63,7 +66,11 @@ export default function RadioPlayer() {
         const res = await fetch(STATION_URL, { cache: "no-store" });
         if (!res.ok) throw new Error();
         const data = (await res.json()) as StationInfo;
-        if (active) setStation(data);
+        if (!active) return;
+        setStation(data);
+        // The tab title is static at build time; keep it in step with the
+        // name the station is actually using.
+        document.title = `${data.name} ${data.frequency} — live`.trim();
       } catch {
         /* backend may be waking up; keep last known values */
       }
@@ -292,7 +299,7 @@ export default function RadioPlayer() {
       </header>
 
       <p className={styles.tagline}>
-        {station.tagline} · {station.city}
+        {[station.tagline, station.city].filter(Boolean).join(" · ")}
       </p>
 
       <div className={styles.scope}>

@@ -16,7 +16,8 @@ const mono = DM_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KIND FM 98.7 — live",
+  // Replaced by the live station name once the player has loaded it.
+  title: "Live radio",
   description: "Your local sound, on a loop. A streaming radio station.",
 };
 
