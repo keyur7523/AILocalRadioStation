@@ -22,9 +22,7 @@ interface UpdateStationDto extends Partial<StationIdentity> {
  * Admin API for the station's on-air identity. Changes apply live (the DJ's
  * spoken timezone, the `/station` info, and ICY metadata all pick them up).
  *
- * NOTE: these endpoints are currently **unauthenticated** by request. Anyone who
- * can reach the backend can change the station. Put them behind an auth guard
- * (e.g. a shared ADMIN_TOKEN) before exposing this publicly.
+ * Everything under /admin is behind ADMIN_PASSWORD (see admin-auth.middleware).
  */
 @Controller('admin')
 export class AdminController {

@@ -32,6 +32,21 @@ export interface StreamConfig {
    */
   bufferSec: number;
   /**
+   * Password for /admin and every /admin/* API. Unset keeps the admin open (so
+   * a deploy cannot lock anyone out) but disables importing, which can put
+   * arbitrary audio on the public stream.
+   */
+  adminPassword: string;
+  /** Bringing music in from links and uploads through the admin panel. */
+  import: {
+    /** Most tracks one link import will fetch. */
+    maxTracks: number;
+    /** Largest file accepted, from a download or an upload, in megabytes. */
+    maxFileMb: number;
+    /** Path to the yt-dlp binary. */
+    ytdlpPath: string;
+  };
+  /**
    * Cloudflare R2 (or any S3-compatible bucket) holding the music. All four
    * fields must be set for it to be used; otherwise the station plays the media
    * folder baked into the image, exactly as it always has.
@@ -164,6 +179,12 @@ export function loadStreamConfig(): StreamConfig {
     // encoder has primed, which stalls the pipeline outright — and it would be
     // too small to absorb anything useful anyway.
     bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 6)),
+    adminPassword: process.env.ADMIN_PASSWORD ?? '',
+    import: {
+      maxTracks: Math.max(1, Number(process.env.IMPORT_MAX_TRACKS ?? 25)),
+      maxFileMb: Math.max(1, Number(process.env.IMPORT_MAX_FILE_MB ?? 50)),
+      ytdlpPath: process.env.YTDLP ?? 'yt-dlp',
+    },
     r2: {
       accountId: process.env.R2_ACCOUNT_ID ?? '',
       bucket: process.env.R2_BUCKET ?? '',

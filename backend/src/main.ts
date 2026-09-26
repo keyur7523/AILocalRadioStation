@@ -2,7 +2,9 @@ import './load-env';
 import { NestFactory } from '@nestjs/core';
 import { Logger, type LogLevel } from '@nestjs/common';
 import { AppModule } from './app.module';
+import { adminAuth } from './admin-auth.middleware';
 import { httpLogger } from './http-logger.middleware';
+import { loadStreamConfig } from './stream/stream.config';
 
 // Show everything by default so Render's logs surface the full picture. Dial it
 // down with LOG_LEVELS, e.g. LOG_LEVELS=error,warn,log for just the essentials.
@@ -22,6 +24,9 @@ async function bootstrap() {
 
   // Log every HTTP request/response.
   app.use(httpLogger);
+
+  // One password guards the admin page and every /admin/* API.
+  app.use('/admin', adminAuth(loadStreamConfig().adminPassword));
 
   // The Next.js player runs on a different origin in dev, so allow it to read
   // the stream and metadata endpoints.

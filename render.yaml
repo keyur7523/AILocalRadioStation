@@ -40,6 +40,9 @@ services:
       # Half a second of silence between every item (song ↔ time-check ↔ song).
       - key: DJ_GAP
         value: "0.5"
+      # Protects /admin. Set it in the dashboard; sync: false keeps it out of git.
+      - key: ADMIN_PASSWORD
+        sync: false
       # Settings, songs and segues live here. Optional — the stream plays without it.
       - key: DATABASE_URL
         fromDatabase:
