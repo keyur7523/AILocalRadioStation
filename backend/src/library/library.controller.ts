@@ -6,6 +6,7 @@ import {
   Get,
   Header,
   Inject,
+  Logger,
   Param,
   Patch,
   Post,
@@ -31,6 +32,8 @@ import { SongsService } from './songs.service';
  */
 @Controller('admin')
 export class LibraryController {
+  private readonly logger = new Logger(LibraryController.name);
+
   constructor(
     private readonly songs: SongsService,
     private readonly segues: SeguesService,
@@ -183,7 +186,23 @@ export class LibraryController {
     }
     res.setHeader('Content-Type', 'audio/wav');
     res.setHeader('X-Spoken-Text', encodeURIComponent(text));
-    createReadStream(clip).pipe(res);
+    // A stream 'error' with no listener is thrown, and an uncaught exception
+    // exits the process — so without this, a clip that vanished before it was
+    // read would have taken the whole broadcast down from an admin button.
+    const audio = createReadStream(clip);
+    audio.on('error', (err) => {
+      this.logger.warn(`preview clip unreadable: ${err.message}`);
+      if (!res.headersSent) {
+        // Kept generic: the underlying message carries a server path, and this
+        // endpoint is not authenticated.
+        res
+          .status(500)
+          .json({ message: 'Could not read the synthesized clip' });
+      } else {
+        res.destroy(err);
+      }
+    });
+    audio.pipe(res);
   }
 
   /** Surface service errors as 400s rather than 500s — they're user input. */
