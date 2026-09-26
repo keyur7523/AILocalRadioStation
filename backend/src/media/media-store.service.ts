@@ -82,6 +82,19 @@ export class MediaStoreService {
   }
 
   /**
+   * The complete set of tracks, or an error — never a best-effort substitute.
+   *
+   * `list()` falls back to whatever happens to be on disk when the bucket is
+   * unreachable, which is right for playback and wrong for bookkeeping: that
+   * fallback is usually a partial cache, and anything deciding what *exists*
+   * from it would conclude every uncached track had been removed. Callers that
+   * add or delete records must use this and stop if it throws.
+   */
+  async listAuthoritative(): Promise<string[]> {
+    return this.remote ? this.listRemote() : this.listLocal();
+  }
+
+  /**
    * What the bucket holds, failing loudly if it cannot be read.
    *
    * `list()` deliberately falls back to local files so the broadcast survives an

@@ -41,22 +41,28 @@ export class SongsService implements OnModuleInit {
     await this.reconcile();
   }
 
-  /** The filenames the library should contain, from wherever music lives. */
-  private filesAvailable(): Promise<string[]> {
-    return this.media.list();
-  }
-
   /**
    * Bring the table in line with the folder: add rows for new files (reading
    * title/artist from their tags), and remove rows whose file has disappeared.
    * Existing rows are left alone so admin edits are never clobbered.
    */
   async reconcile(): Promise<void> {
-    const onDisk = await this.filesAvailable();
-    // An empty listing is never trusted to mean "the library is empty". It far
-    // more likely means the bucket was unreachable, or credentials are wrong —
-    // and deleting every row over a transient failure would throw away the
-    // phonetic spellings, running order and skips that cannot be recovered.
+    // Existence is decided only from a complete listing. If the source cannot
+    // be read, change nothing: a fallback listing is typically a partial cache,
+    // and reconciling against it would delete every track not in it — along
+    // with the titles, spoken spellings, order and skips stored for them.
+    let onDisk: string[];
+    try {
+      onDisk = await this.media.listAuthoritative();
+    } catch (err) {
+      this.logger.warn(
+        `Could not read the music source (${(err as Error).message}) — ` +
+          'leaving the library untouched',
+      );
+      return;
+    }
+    // An empty listing is not trusted to mean "no music" either: it is far
+    // more often a misconfigured or wrong bucket than a deliberately empty one.
     if (onDisk.length === 0) {
       this.logger.warn(
         'No tracks found — leaving the library untouched rather than emptying it',
@@ -72,11 +78,18 @@ export class SongsService implements OnModuleInit {
       let added = 0;
       for (const file of onDisk) {
         if (known.has(file)) continue;
-        const path = `${this.mediaDir}/${file}`;
-        const info = buildTrackInfo(
-          await readTags(this.ffprobePath, path),
-          path,
-        );
+        // Tags live in the file, so a track that exists only in the bucket is
+        // fetched once to read them; reading from the media folder instead
+        // found nothing and catalogued it under its filename.
+        let info: ReturnType<typeof buildTrackInfo> = null;
+        try {
+          const path = await this.media.ensureLocal(file);
+          info = buildTrackInfo(await readTags(this.ffprobePath, path), path);
+        } catch (err) {
+          this.logger.warn(
+            `Could not read tags for ${file}: ${(err as Error).message}`,
+          );
+        }
         await repo.save(
           repo.create({
             file,
