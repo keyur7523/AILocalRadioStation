@@ -97,7 +97,9 @@ export class StationConfigService implements OnModuleInit {
       if (typeof value !== 'string' || value.trim() === '') {
         throw new Error(`"${key}" must be a non-empty string`);
       }
-      next[key] = value.trim();
+      // Every field is shown on one line — in the player, the admin and the
+      // stream's metadata — so line breaks and runs of spaces are collapsed.
+      next[key] = value.replace(/\s+/g, ' ').trim();
     }
     if (patch.timeZone !== undefined) this.assertValidTimeZone(next.timeZone);
 
