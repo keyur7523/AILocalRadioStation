@@ -25,9 +25,14 @@ async function bootstrap() {
 
   // The Next.js player runs on a different origin in dev, so allow it to read
   // the stream and metadata endpoints.
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN?.split(',') ?? true,
-  });
+  // An empty CORS_ORIGIN (a variable cleared in a dashboard, say) used to split
+  // into [''] — an allow-list matching nothing — and silently block the player.
+  // Blank entries are ignored, and no entries at all means "allow any origin".
+  const origins = (process.env.CORS_ORIGIN ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: origins.length ? origins : true });
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
