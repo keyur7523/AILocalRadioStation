@@ -23,9 +23,8 @@ ${ADMIN_CSS}
   .wrap{max-width:1040px}
   .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:16px}
   .search{flex:1;min-width:220px;position:relative}
-  .search input{width:100%;padding:11px 34px 11px 36px;font-size:14px}
-  .search .icon{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none}
-  .search .clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:2px 6px;line-height:1}
+  .search input{width:100%;padding:11px 64px 11px 13px;font-size:14px}
+  .search .clear{position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;padding:2px 6px;line-height:1}
   .search .clear:hover{color:var(--text)}
   .count{color:var(--muted);font-size:12px;white-space:nowrap}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
@@ -36,10 +35,9 @@ ${ADMIN_CSS}
   .skipcell input{appearance:none;-webkit-appearance:none;width:17px;height:17px;border:1px solid var(--line);border-radius:5px;background:#0e0c0a;cursor:pointer;position:relative;vertical-align:middle;padding:0}
   .skipcell input:hover{border-color:var(--amber)}
   .skipcell input:checked{background:var(--amber);border-color:var(--amber)}
-  .skipcell input:checked::after{content:"✓";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#1a1206;font-size:12px;font-weight:700}
+  .skipcell input:checked::after{content:"";position:absolute;left:5px;top:1px;width:4px;height:9px;border:solid #1a1206;border-width:0 2px 2px 0;transform:rotate(45deg)}
   .skipcell input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
   .notice{display:flex;gap:11px;align-items:flex-start;background:#241d15;border:1px solid #4a3a22;border-radius:10px;padding:13px 15px;margin-bottom:16px;font-size:13px;line-height:1.5}
-  .notice .mark{color:var(--amber2);font-size:15px;line-height:1.2}
   .notice b{color:var(--amber2);font-weight:600}
   .notice .muted{display:block;margin-top:4px}
   /* The row's controls read as one group; let the table scroll rather than
@@ -51,16 +49,15 @@ ${ADMIN_CSS}
 </head>
 <body>
 <div class="wrap">
-  <h1>🎵 Station Library</h1>
+  <h1>Station Library</h1>
   <p class="sub">
     Everything the station plays, in running order.
-    <a class="backlink" href="/admin">&#8592; station admin</a> ·
-    <a class="backlink" href="/stream">listen &#8599;</a>
+    <a class="backlink" href="/admin">Station admin</a> ·
+    <a class="backlink" href="/stream">Listen</a>
   </p>
 
   <div class="card">
     <div class="notice" id="allSkipped" hidden>
-      <span class="mark">&#9888;</span>
       <span>
         <b>Every track is skipped.</b>
         <span class="muted">A station can't broadcast silence, so the rotation falls back to
@@ -70,7 +67,6 @@ ${ADMIN_CSS}
     </div>
 
     <div class="notice" id="outOfSync" hidden>
-      <span class="mark">&#8635;</span>
       <span>
         <b>The air doesn't match this list yet.</b>
         <span class="muted" id="outOfSyncDetail"></span>
@@ -79,12 +75,11 @@ ${ADMIN_CSS}
 
     <div class="toolbar">
       <label class="search">
-        <span class="icon">&#9906;</span>
         <input id="q" type="search" placeholder="Search title, artist, spoken spelling or filename…" autocomplete="off" />
-        <button class="clear" id="clearBtn" hidden title="Clear search">&times;</button>
+        <button class="clear" id="clearBtn" hidden title="Clear search">Clear</button>
       </label>
       <span class="count" id="count"></span>
-      <button class="mini" id="rescanBtn" title="Re-read the music source and apply it on air">&#8635; rescan</button>
+      <button class="mini" id="rescanBtn" title="Re-read the music source and apply it on air">Rescan</button>
     </div>
 
     <p class="muted" id="note">Loading&hellip;</p>
@@ -221,10 +216,10 @@ ${ADMIN_CSS}
       skipTd.appendChild(box);tr.appendChild(skipTd);
 
       var act=el('td','actions'),bar=el('div','segbar');
-      var bt=el('button','mini','▶ title');
+      var bt=el('button','mini','Hear title');
       bt.title='Hear the DJ say the title';
       bt.onclick=function(){say(song.phoneticTitle||song.title,bt)};
-      var ba=el('button','mini','▶ artist');
+      var ba=el('button','mini','Hear artist');
       ba.title='Hear the DJ say the artist';
       ba.onclick=function(){
         var name=song.phoneticArtist||song.artist;
@@ -237,9 +232,9 @@ ${ADMIN_CSS}
       // track past rows you cannot see — so it is offered only unfiltered.
       if(!filter){
         var idx=songs.indexOf(song);
-        var up=el('button','mini','↑');up.disabled=idx===0;
+        var up=el('button','mini','Up');up.disabled=idx===0;
         up.onclick=function(){move(idx,idx-1)};
-        var dn=el('button','mini','↓');dn.disabled=idx===songs.length-1;
+        var dn=el('button','mini','Down');dn.disabled=idx===songs.length-1;
         dn.onclick=function(){move(idx,idx+1)};
         bar.appendChild(up);bar.appendChild(dn);
       }

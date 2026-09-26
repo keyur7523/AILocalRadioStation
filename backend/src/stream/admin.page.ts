@@ -62,8 +62,8 @@ export const ADMIN_HTML = `<!doctype html>
 </head>
 <body>
 <div class="wrap">
-  <h1>📻 Station Admin</h1>
-  <p class="sub">Switch the on-air identity &amp; the timezone the DJ announces — live, no restart. <a class="listen" href="/stream">listen &#8599;</a></p>
+  <h1>Station Admin</h1>
+  <p class="sub">Switch the on-air identity &amp; the timezone the DJ announces — live, no restart. <a class="listen" href="/stream">Listen</a></p>
 
   <div class="card">
     <h2>On air now</h2>
@@ -103,7 +103,7 @@ export const ADMIN_HTML = `<!doctype html>
         <span class="muted" id="libCount">&mdash;</span>
       </div>
       <span class="spacer"></span>
-      <a class="mini" href="/admin/library" style="text-decoration:none">open library &#8594;</a>
+      <a class="mini" href="/admin/library" style="text-decoration:none">Open library</a>
     </div>
   </div>
 
@@ -153,7 +153,7 @@ export const ADMIN_HTML = `<!doctype html>
     }
     if(currentId)sel.value=currentId;
     sel.onchange=function(){
-      apply({voiceId:sel.value},'DJ voice → '+sel.options[sel.selectedIndex].textContent);
+      apply({voiceId:sel.value},'DJ voice: '+sel.options[sel.selectedIndex].textContent);
     };
   }
   function init(){
@@ -238,7 +238,7 @@ export const ADMIN_HTML = `<!doctype html>
     };
     var bar=el('div','segbar');
     bar.appendChild(el('span','tag',seg.placement==='before'?'before song':'after song'));
-    var play=el('button','mini','▶ hear it');
+    var play=el('button','mini','Hear it');
     play.onclick=function(){say(ta.value,null,null,play)};
     var onoff=el('button','mini',seg.enabled?'enabled':'disabled');
     onoff.onclick=function(){
