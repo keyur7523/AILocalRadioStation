@@ -21,7 +21,6 @@ import { readTags } from './read-tags';
 @Injectable()
 export class SongsService implements OnModuleInit {
   private readonly logger = new Logger(SongsService.name);
-  private readonly mediaDir = loadStreamConfig().mediaDir;
   private readonly ffprobePath = loadStreamConfig().ffprobePath;
 
   constructor(
@@ -104,9 +103,39 @@ export class SongsService implements OnModuleInit {
       const gone = rows.filter((r) => !onDisk.includes(r.file));
       if (gone.length) await repo.remove(gone);
 
-      if (added || gone.length) {
+      // Repair rows catalogued before tags were read from the real file: those
+      // were saved under a name derived from the filename, and since the DJ
+      // prefers the library over the file's tags, the wrong name stuck. Only
+      // rows that still look untouched are considered — a filename-derived
+      // title and no artist — so anything edited in the console is left alone.
+      let repaired = 0;
+      for (const row of rows) {
+        if (!onDisk.includes(row.file) || !looksUntagged(row)) continue;
+        try {
+          const path = await this.media.ensureLocal(row.file);
+          const info = buildTrackInfo(
+            await readTags(this.ffprobePath, path),
+            path,
+          );
+          const better =
+            info &&
+            (info.title !== row.title || (info.artist ?? null) !== row.artist);
+          if (!better) continue;
+          row.title = info.title;
+          row.artist = info.artist ?? null;
+          await repo.save(row);
+          repaired += 1;
+        } catch (err) {
+          this.logger.warn(
+            `Could not re-read tags for ${row.file}: ${(err as Error).message}`,
+          );
+        }
+      }
+
+      if (added || gone.length || repaired) {
         this.logger.log(
-          `Library synced: ${added} added, ${gone.length} removed, ${onDisk.length} on disk`,
+          `Library synced: ${added} added, ${gone.length} removed, ` +
+            `${repaired} retitled from tags, ${onDisk.length} on disk`,
         );
       }
       return true;
@@ -203,4 +232,16 @@ export class SongsService implements OnModuleInit {
       throw new Error('Could not reorder — the library is unavailable');
     return this.list();
   }
+}
+
+/**
+ * Whether a row still carries the placeholder it was given when no tags could
+ * be read: a title that is just the filename (raw, or tidied the way
+ * {@link buildTrackInfo} tidies it) and no artist.
+ */
+function looksUntagged(row: Song): boolean {
+  if (row.artist) return false;
+  return (
+    row.title === row.file || row.title === buildTrackInfo({}, row.file)?.title
+  );
 }
