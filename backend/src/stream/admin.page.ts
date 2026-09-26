@@ -103,6 +103,7 @@ export const ADMIN_HTML = `<!doctype html>
         <span class="muted" id="libCount">&mdash;</span>
       </div>
       <span class="spacer"></span>
+      <a class="mini" href="/admin/library#import" style="text-decoration:none">Import music</a>
       <a class="mini" href="/admin/library" style="text-decoration:none">Open library</a>
     </div>
   </div>
@@ -122,6 +123,10 @@ export const ADMIN_HTML = `<!doctype html>
 <datalist id="tzOptions"></datalist>
 <div class="toast" id="toast"></div>
 <script>
+  // API calls go to location.origin rather than a relative path. A page opened
+  // from an address with a password in it (user:pass@host) makes the browser
+  // refuse relative requests outright, which would leave every panel empty.
+  function fetchA(path,opts){return fetch(location.origin+path,opts)}
   function q(id){return document.getElementById(id)}
   function toast(msg,isErr){var t=q('toast');t.textContent=msg;t.className='toast show'+(isErr?' err':'');setTimeout(function(){t.className='toast'},2600)}
   function populateTimezones(){
@@ -157,12 +162,12 @@ export const ADMIN_HTML = `<!doctype html>
     };
   }
   function init(){
-    fetch('/admin/config').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/config').then(function(r){return r.json()}).then(function(d){
       renderCurrent(d.station);fillForm(d.station);renderVoices(d.voices,d.voiceId);
     }).catch(function(){toast('Could not load config',true)});
   }
   function refresh(){
-    fetch('/admin/config').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/config').then(function(r){return r.json()}).then(function(d){
       renderCurrent(d.station);
     }).catch(function(){});
   }
@@ -170,7 +175,7 @@ export const ADMIN_HTML = `<!doctype html>
   // other update (switching voice, say) would overwrite whatever the operator
   // had half-typed into those fields.
   function apply(body,okMsg,refillForm){
-    fetch('/admin/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    fetchA('/admin/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json().then(function(j){return{ok:r.ok,j:j}})})
       .then(function(res){
         if(!res.ok){toast((res.j&&res.j.message)||'Update failed',true);return}
@@ -192,7 +197,7 @@ export const ADMIN_HTML = `<!doctype html>
   function say(text,songName,artistName,btn){
     if(!text||!text.trim()){toast('Nothing to say',true);return}
     var label=btn?btn.textContent:''; if(btn){btn.disabled=true;btn.textContent='...'}
-    fetch('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+    fetchA('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:text,songName:songName,artistName:artistName})})
       .then(function(r){
         if(!r.ok)return r.json().then(function(j){throw new Error(j.message||'Preview failed')});
@@ -203,7 +208,7 @@ export const ADMIN_HTML = `<!doctype html>
       .finally(function(){if(btn){btn.disabled=false;btn.textContent=label}});
   }
   function api(method,url,body){
-    return fetch(url,{method:method,headers:{'Content-Type':'application/json'},
+    return fetchA(url,{method:method,headers:{'Content-Type':'application/json'},
       body:body?JSON.stringify(body):undefined})
       .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message||'Failed');return j})});
   }
@@ -211,7 +216,7 @@ export const ADMIN_HTML = `<!doctype html>
 
   // The rotation is managed at /admin/library; the console just links to it.
   function loadLibraryCount(){
-    fetch('/admin/songs').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/songs').then(function(r){return r.json()}).then(function(d){
       var n=(d.songs||[]).length,skipped=(d.songs||[]).filter(function(s){return s.skip}).length;
       q('libCount').textContent=!d.editable
         ? 'No database connected'
@@ -221,7 +226,7 @@ export const ADMIN_HTML = `<!doctype html>
 
   // ---- segues -------------------------------------------------------------
   function loadSegues(){
-    fetch('/admin/segues').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/segues').then(function(r){return r.json()}).then(function(d){
       var list=q('seguesList');list.textContent='';
       if(!d.editable){list.appendChild(el('p','muted','No database connected — the DJ uses its built-in lines.'));return}
       if(!d.segues.length){list.appendChild(el('p','muted','No segues yet. Add one below.'));return}

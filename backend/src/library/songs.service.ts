@@ -45,7 +45,16 @@ export class SongsService implements OnModuleInit {
    * title/artist from their tags), and remove rows whose file has disappeared.
    * Existing rows are left alone so admin edits are never clobbered.
    */
-  async reconcile(): Promise<void> {
+  async reconcile(
+    options: {
+      /**
+       * Files that should enter the library skipped — used for imports, so
+       * the operator can check titles, pronunciation and licensing before a
+       * track airs. Set at creation, so there is no moment it is on air.
+       */
+      arriveSkipped?: ReadonlySet<string>;
+    } = {},
+  ): Promise<void> {
     // Existence is decided only from a complete listing. If the source cannot
     // be read, change nothing: a fallback listing is typically a partial cache,
     // and reconciling against it would delete every track not in it — along
@@ -95,6 +104,7 @@ export class SongsService implements OnModuleInit {
             title: info?.title ?? file,
             artist: info?.artist ?? null,
             position: ++position,
+            skip: options.arriveSkipped?.has(file) ?? false,
           }),
         );
         added += 1;

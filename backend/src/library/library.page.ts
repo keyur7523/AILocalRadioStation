@@ -37,6 +37,21 @@ ${ADMIN_CSS}
   .skipcell input:checked{background:var(--amber);border-color:var(--amber)}
   .skipcell input:checked::after{content:"";position:absolute;left:5px;top:1px;width:4px;height:9px;border:solid #1a1206;border-width:0 2px 2px 0;transform:rotate(45deg)}
   .skipcell input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .importgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px}
+  .importgrid form{display:grid;gap:9px;align-content:start}
+  .importgrid input[type=file]{padding:8px;font-size:13px}
+  .hint{color:var(--muted);font-size:12px;line-height:1.45}
+  .reasons{color:#e0a24f;font-size:13px;margin:10px 0 0}
+  .progress{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;font-size:13px}
+  .progress .summary{margin-bottom:8px}
+  .progress .row{display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--line)}
+  .progress .row:first-of-type{border-top:none}
+  .progress .title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .progress .state{color:var(--muted);white-space:nowrap}
+  .progress .state.ok{color:#43c463}
+  .progress .state.bad{color:#e0574f}
+  .progress .note{color:var(--muted);font-size:12px;padding:0 0 4px}
+  @media(max-width:640px){.importgrid{grid-template-columns:1fr}}
   .notice{display:flex;gap:11px;align-items:flex-start;background:#241d15;border:1px solid #4a3a22;border-radius:10px;padding:13px 15px;margin-bottom:16px;font-size:13px;line-height:1.5}
   .notice b{color:var(--amber2);font-weight:600}
   .notice .muted{display:block;margin-top:4px}
@@ -55,6 +70,31 @@ ${ADMIN_CSS}
     <a class="backlink" href="/admin">Station admin</a> ·
     <a class="backlink" href="/stream">Listen</a>
   </p>
+
+  <div class="card" id="importCard" hidden>
+    <h2>Import music</h2>
+    <p class="hint">Only import music you have the rights to broadcast. Imported tracks arrive
+      skipped, so nothing airs until you untick it in the list below.</p>
+    <p class="reasons" id="importReasons" hidden></p>
+    <div class="importgrid">
+      <form id="linkForm" autocomplete="off">
+        <label>From a link — a playlist or a single track
+          <input name="url" type="url" placeholder="https://soundcloud.com/..." />
+        </label>
+        <button class="save" type="submit" id="linkBtn">Import from link</button>
+        <span class="hint">Works with SoundCloud, Bandcamp, Internet Archive and many more.
+          YouTube often refuses servers like this one; if it does, upload the files instead.</span>
+      </form>
+      <form id="fileForm">
+        <label>From your computer — MP3 files
+          <input name="files" type="file" accept=".mp3,audio/mpeg" multiple />
+        </label>
+        <button class="save" type="submit" id="fileBtn">Upload</button>
+        <span class="hint">Up to 20 files at a time.</span>
+      </form>
+    </div>
+    <div class="progress" id="importProgress" hidden></div>
+  </div>
 
   <div class="card">
     <div class="notice" id="allSkipped" hidden>
@@ -79,6 +119,7 @@ ${ADMIN_CSS}
         <button class="clear" id="clearBtn" hidden title="Clear search">Clear</button>
       </label>
       <span class="count" id="count"></span>
+      <button class="mini" id="importBtn" title="Bring in music from a link or your computer">Import</button>
       <button class="mini" id="rescanBtn" title="Re-read the music source and apply it on air">Rescan</button>
     </div>
 
@@ -98,11 +139,15 @@ ${ADMIN_CSS}
 </div>
 <div class="toast" id="toast"></div>
 <script>
+  // API calls go to location.origin rather than a relative path. A page opened
+  // from an address with a password in it (user:pass@host) makes the browser
+  // refuse relative requests outright, which would leave every panel empty.
+  function fetchA(path,opts){return fetch(location.origin+path,opts)}
   function q(id){return document.getElementById(id)}
   function toast(msg,isErr){var t=q('toast');t.textContent=msg;t.className='toast show'+(isErr?' err':'');setTimeout(function(){t.className='toast'},2600)}
   function el(tag,cls,text){var e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e}
   function api(method,url,body){
-    return fetch(url,{method:method,headers:{'Content-Type':'application/json'},
+    return fetchA(url,{method:method,headers:{'Content-Type':'application/json'},
       body:body?JSON.stringify(body):undefined})
       .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message||'Failed');return j})});
   }
@@ -111,7 +156,7 @@ ${ADMIN_CSS}
   function say(text,btn){
     if(!text||!text.trim()){toast('Nothing to say',true);return}
     var label=btn.textContent;btn.disabled=true;btn.textContent='...';
-    fetch('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},
+    fetchA('/admin/preview',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:text})})
       .then(function(r){if(!r.ok)return r.json().then(function(j){throw new Error(j.message||'Preview failed')});return r.blob()})
       .then(function(b){audio.src=URL.createObjectURL(b);return audio.play()})
@@ -264,7 +309,7 @@ ${ADMIN_CSS}
   // reordering changes this page at once and the air only at the next rescan.
   // Say so plainly rather than leaving it looking like the wrong song playing.
   function checkOnAir(){
-    fetch('/admin/onair').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/onair').then(function(r){return r.json()}).then(function(d){
       q('outOfSync').hidden=!!d.inSync;
       if(d.inSync)return;
       var playing=d.playing?'Playing '+d.playing+'. ':'';
@@ -275,7 +320,7 @@ ${ADMIN_CSS}
   }
 
   function load(){
-    fetch('/admin/songs').then(function(r){return r.json()}).then(function(d){
+    fetchA('/admin/songs').then(function(r){return r.json()}).then(function(d){
       songs=d.songs||[];editable=d.editable;
       if(!editable){
         q('note').textContent='No database connected — the rotation is read-only.';
@@ -315,6 +360,85 @@ ${ADMIN_CSS}
     }).catch(function(e){toast(e.message||'Rescan failed',true)})
       .finally(function(){btn.disabled=false;btn.textContent=label});
   };
+
+  // ---- import -------------------------------------------------------------
+  var LABELS={queued:'Waiting',downloading:'Downloading',checking:'Checking',
+    uploading:'Saving',done:'Added',skipped:'Already there',failed:'Failed'};
+  var polling=null,wasBusy=false;
+
+  function busy(job){return !!job&&(job.state==='listing'||job.state==='importing')}
+
+  function renderImport(d){
+    var reasons=q('importReasons');
+    reasons.hidden=!d.reasons.length;
+    reasons.textContent=d.reasons.join(' ');
+    var running=busy(d.job);
+    q('linkBtn').disabled=!d.link||running;
+    q('fileBtn').disabled=!d.upload||running;
+    renderProgress(d.job);
+    if(running&&!polling){polling=setInterval(pollImport,2000)}
+    if(!running&&polling){clearInterval(polling);polling=null}
+    // When a job finishes, show what it added — ticked as skipped.
+    if(wasBusy&&!running)load();
+    wasBusy=running;
+  }
+
+  function renderProgress(job){
+    var box=q('importProgress');
+    box.hidden=!job;
+    if(!job)return;
+    box.textContent='';
+    var count=function(s){return job.items.filter(function(i){return i.state===s}).length};
+    var line;
+    if(job.state==='listing')line='Looking up what the link contains...';
+    else if(job.state==='importing')line='Importing '+job.items.length+' track(s)...';
+    else if(job.state==='failed')line='Import stopped: '+(job.error||'unknown error');
+    else line='Finished: '+count('done')+' added, '+count('skipped')+' already there, '+count('failed')+' failed.';
+    box.appendChild(el('div','summary',line));
+    job.items.forEach(function(it){
+      var row=el('div','row');
+      row.appendChild(el('span','title',it.title));
+      var cls=it.state==='done'?'state ok':it.state==='failed'?'state bad':'state';
+      row.appendChild(el('span',cls,LABELS[it.state]||it.state));
+      box.appendChild(row);
+      if(it.note)box.appendChild(el('div','note',it.note));
+    });
+  }
+
+  function pollImport(){
+    fetchA('/admin/import').then(function(r){return r.json()}).then(renderImport).catch(function(){});
+  }
+
+  q('importBtn').onclick=function(){
+    var card=q('importCard');card.hidden=!card.hidden;
+    if(!card.hidden){pollImport();card.scrollIntoView({behavior:'smooth'})}
+  };
+
+  q('linkForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    var url=e.target.url.value.trim();
+    if(!url){toast('Paste a link first',true);return}
+    q('linkBtn').disabled=true;
+    api('POST','/admin/import',{url:url}).then(function(){
+      e.target.url.value='';wasBusy=true;pollImport();
+    }).catch(function(err){toast(err.message,true);pollImport()});
+  });
+
+  q('fileForm').addEventListener('submit',function(e){
+    e.preventDefault();
+    var input=e.target.files;
+    if(!input.files.length){toast('Choose some .mp3 files first',true);return}
+    var data=new FormData();
+    for(var i=0;i<input.files.length;i++)data.append('files',input.files[i]);
+    q('fileBtn').disabled=true;q('fileBtn').textContent='Uploading...';
+    fetchA('/admin/import/upload',{method:'POST',body:data})
+      .then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.message||'Upload failed');return j})})
+      .then(function(){input.value='';wasBusy=true;pollImport()})
+      .catch(function(err){toast(err.message,true);pollImport()})
+      .finally(function(){q('fileBtn').textContent='Upload'});
+  });
+
+  if(location.hash==='#import'){q('importCard').hidden=false;pollImport()}
 
   load();
 </script>

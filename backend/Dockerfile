@@ -34,6 +34,20 @@ RUN set -eu; \
     curl -fsSL "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/$v.onnx.json?download=true" -o "/app/voices/$n.onnx.json"; \
   done
 
+# yt-dlp for importing music from links in the admin panel. The standalone
+# build bundles its own Python, and ffmpeg is already installed above. Sites
+# change often, so bump YTDLP_VERSION when imports start failing. The download
+# is checked against the release's published SHA-256 sums.
+ARG YTDLP_VERSION=2026.08.19
+RUN set -eu; \
+  base="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}"; \
+  curl -fsSL "$base/yt-dlp_linux" -o /tmp/yt-dlp_linux; \
+  curl -fsSL "$base/SHA2-256SUMS" -o /tmp/SHA2-256SUMS; \
+  (cd /tmp && grep ' yt-dlp_linux$' SHA2-256SUMS | sha256sum -c -); \
+  install -m 0755 /tmp/yt-dlp_linux /usr/local/bin/yt-dlp; \
+  rm -f /tmp/yt-dlp_linux /tmp/SHA2-256SUMS; \
+  yt-dlp --version
+
 # Use the neural Piper voice by default; espeak-ng stays as the fallback engine.
 # Baked as image ENV so it applies on deploy without needing dashboard/env changes.
 ENV DJ_TTS_ENGINE=piper \

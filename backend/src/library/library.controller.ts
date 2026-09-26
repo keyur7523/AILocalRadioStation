@@ -12,13 +12,21 @@ import {
   Post,
   Query,
   Res,
+  UploadedFiles,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { Segue } from '../db/entities/segue.entity';
 import { Song } from '../db/entities/song.entity';
 import { SequencerService } from '../stream/dj/sequencer.service';
+import { loadStreamConfig } from '../stream/stream.config';
 import { TTS_SERVICE, type TtsService } from '../stream/tts/tts.interface';
+import { IMPORT_TMP, ImportService } from './import.service';
 import { LIBRARY_HTML } from './library.page';
 import { PLACEHOLDERS, renderSegue } from './segue-template';
 import { SeguesService } from './segues.service';
@@ -28,7 +36,7 @@ import { SongsService } from './songs.service';
  * The station's library console: the running order, how the DJ pronounces each
  * track, and the lines it says around them.
  *
- * Unauthenticated, like the rest of `/admin` — see the note on AdminController.
+ * Behind ADMIN_PASSWORD, like the rest of `/admin`.
  */
 @Controller('admin')
 export class LibraryController {
@@ -39,7 +47,57 @@ export class LibraryController {
     private readonly segues: SeguesService,
     @Inject(TTS_SERVICE) private readonly tts: TtsService,
     private readonly sequencer: SequencerService,
+    private readonly imports: ImportService,
   ) {}
+
+  /** What can be imported, and the current or most recent import. */
+  @Get('import')
+  importStatus() {
+    return this.imports.status();
+  }
+
+  /**
+   * Import a playlist or a single track from a link. Returns at once; the job
+   * runs in the background and its progress is read from GET /admin/import.
+   */
+  @Post('import')
+  importLink(@Body() body: { url?: unknown }) {
+    return this.imports.startLink(body?.url);
+  }
+
+  /**
+   * Import MP3 files uploaded from the operator's computer. Written to disk,
+   * not held in memory — this host has little of it to spare.
+   */
+  @Post('import/upload')
+  @UseInterceptors(
+    FilesInterceptor('files', 20, {
+      storage: diskStorage({
+        destination: join(IMPORT_TMP, 'incoming'),
+        filename: (_req, file, done) =>
+          done(
+            null,
+            `${randomUUID()}${extname(file.originalname).toLowerCase()}`,
+          ),
+      }),
+      limits: {
+        fileSize: loadStreamConfig().import.maxFileMb * 1024 * 1024,
+        files: 20,
+      },
+      fileFilter: (_req, file, done) =>
+        file.originalname.toLowerCase().endsWith('.mp3')
+          ? done(null, true)
+          : done(
+              new BadRequestException('Only .mp3 files can be uploaded'),
+              false,
+            ),
+    }),
+  )
+  importUpload(@UploadedFiles() files: Express.Multer.File[] = []) {
+    return this.imports.startUpload(
+      files.map((f) => ({ path: f.path, originalname: f.originalname })),
+    );
+  }
 
   /** The running order, plus whether edits are possible at all. */
   /**

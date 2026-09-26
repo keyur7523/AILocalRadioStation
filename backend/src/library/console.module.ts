@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { StreamModule } from '../stream/stream.module';
+import { ImportService } from './import.service';
 import { LibraryController } from './library.controller';
 
 /**
@@ -10,5 +11,6 @@ import { LibraryController } from './library.controller';
 @Module({
   imports: [StreamModule],
   controllers: [LibraryController],
+  providers: [ImportService],
 })
 export class ConsoleModule {}

@@ -80,6 +80,14 @@ artists, spoken spellings and filenames; hear how the DJ pronounces any track;
 fix that pronunciation; reorder, rest (`skip`) or remove a song; and rescan the
 music source without a restart. The console links to it.
 
+**Importing:** the **Import** button brings music in from a link — a playlist or
+a single track on SoundCloud, Bandcamp, Internet Archive and the many other sites
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) supports — or from MP3 files on your
+computer. Tracks are saved to the R2 bucket and **arrive skipped**, so nothing
+airs until you untick it. YouTube often refuses servers in data centres like
+Render's; when a link is refused, upload the files instead. Only import music you
+have the rights to broadcast. Importing needs `ADMIN_PASSWORD` and the R2 bucket.
+
 Search is also available on the API:
 
 ```bash
@@ -109,7 +117,7 @@ curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
 
 Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is stored in Postgres when `DATABASE_URL` is set, so it survives restarts and redeploys.
 
-> **Note:** the admin endpoints are currently **unauthenticated**. Put them behind an auth guard before exposing the backend publicly.
+Set `ADMIN_PASSWORD` to protect `/admin` and every `/admin/*` API: the browser asks for it once (any username). Without it the admin is open to anyone and importing is disabled. With a password set, add `-u admin:<password>` to the `curl` examples above.
 
 ## Tech stack
 
