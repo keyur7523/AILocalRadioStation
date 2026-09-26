@@ -225,7 +225,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn('DJ break skipped — no segment could be synthesized');
       return null;
     }
-    this.logger.log(`🎙  DJ: "${kept.map((s) => s.text).join(' ')}"`);
+    this.logger.log(`DJ: "${kept.map((s) => s.text).join(' ')}"`);
     return kept.map((s) => s.path);
   }
 
@@ -266,7 +266,7 @@ export class DjService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.tts.synthesize(phrase);
       this.warmedPhrase = phrase;
-      this.logger.log(`🔥 warmed cache for upcoming minute: "${phrase}"`);
+      this.logger.log(`warmed cache for upcoming minute: "${phrase}"`);
     } catch (err) {
       this.logger.warn(`cache-warm failed: ${(err as Error).message}`);
     }

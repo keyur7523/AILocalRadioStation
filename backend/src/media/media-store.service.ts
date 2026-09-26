@@ -172,7 +172,7 @@ export class MediaStoreService {
     await writeFile(partial, bytes);
     await rename(partial, target);
     this.logger.log(
-      `⬇  fetched ${file} (${(bytes.length / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt}ms)`,
+      `fetched ${file} (${(bytes.length / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt}ms)`,
     );
     return target;
   }

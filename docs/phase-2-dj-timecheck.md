@@ -444,7 +444,7 @@ flaky this project):
 
 ## 11. Observability
 
-Log (via Nest `Logger`): item transitions (`▶ song: <name>` / `🎙 DJ: "<phrase>"`),
+Log (via Nest `Logger`): item transitions (`song: <name>` / `DJ: "<phrase>"`),
 TTS cache hit/miss + synth duration, soft-fail reasons, decoder/encoder exits and
 restarts, listener connect/leave (already present). No metrics backend required;
 the existing status page already covers up/down.

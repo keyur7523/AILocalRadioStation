@@ -37,7 +37,7 @@ async function bootstrap() {
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
   logger.log(
-    `📻 Radio backend on http://localhost:${port} (stream: /stream) — log levels: [${levels.join(', ')}]`,
+    `Radio backend on http://localhost:${port} (stream: /stream) — log levels: [${levels.join(', ')}]`,
   );
 }
 

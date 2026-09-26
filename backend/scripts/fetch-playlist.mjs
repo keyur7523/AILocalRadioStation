@@ -54,7 +54,7 @@ const args = [
 
 console.log(`Fetching audio → ${outDir}`);
 console.log(
-  '⚠️  Local testing only — do not deploy copyrighted tracks to the public stream.\n',
+  'WARNING: Local testing only — do not deploy copyrighted tracks to the public stream.\n',
 );
 
 const proc = spawn(ytdlp, args, { stdio: 'inherit' });

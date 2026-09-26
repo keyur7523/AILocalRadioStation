@@ -67,7 +67,7 @@ npm test               # unit tests — 5/5 pass
 DJ_ENABLED=true DJ_EVERY_N_SONGS=1 STATION_TIMEZONE=America/New_York npm run start:dev
 curl -s --max-time 30 http://localhost:3001/stream -o /tmp/live.mp3   # play it
 ```
-Expect logs: `▶ <song>` then `🎙 DJ: "The time is H:MM AM/PM"`, cycling.
+Expect logs: `song: <file>` then `DJ: "The time is H:MM AM/PM"`, cycling.
 Needs `espeak-ng` on PATH locally (`brew install espeak-ng`); it's in the Docker
 image already.
 

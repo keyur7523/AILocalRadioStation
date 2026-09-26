@@ -387,13 +387,11 @@ export class SequencerService implements OnModuleDestroy {
 
     if (item.kind === 'song') {
       const name = item.path.split('/').pop();
-      this.logger.log(
-        `▶  song: ${name}${item.talkover ? ' (DJ over tail)' : ''}`,
-      );
+      this.logger.log(`song: ${name}${item.talkover ? ' (DJ over tail)' : ''}`);
     } else if (item.kind === 'dj') {
-      this.logger.log(`🎙  DJ break on air (${item.paths.length} segment(s))`);
+      this.logger.log(`DJ break on air (${item.paths.length} segment(s))`);
     } else if (item.kind === 'gap') {
-      this.logger.debug(`···  gap ${this.config.dj.gapSec}s`);
+      this.logger.debug(`gap ${this.config.dj.gapSec}s`);
     }
 
     const decoder = spawn(this.config.ffmpegPath, args, {
@@ -476,9 +474,7 @@ export class SequencerService implements OnModuleDestroy {
       this.pendingDj = false;
       const clip = await this.takeDj();
       if (!clip) {
-        this.logger.warn(
-          '⤳  time-check unavailable (TTS failed) — playing song',
-        );
+        this.logger.warn('time-check unavailable (TTS failed) — playing song');
         return null;
       }
       return { kind: 'dj', paths: clip };
@@ -902,7 +898,7 @@ export class SequencerService implements OnModuleDestroy {
     const trim: Trim = { start, duration: tailStart === null ? null : audible };
     if (start > 0 || tailStart !== null) {
       this.logger.log(
-        `✂  trimmed ${path.split('/').pop()}: ` +
+        `trimmed ${path.split('/').pop()}: ` +
           `head ${start.toFixed(2)}s, tail ${(duration - (tailStart ?? duration)).toFixed(2)}s ` +
           `(${duration.toFixed(1)}s → ${audible.toFixed(1)}s)`,
       );

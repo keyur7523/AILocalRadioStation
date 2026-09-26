@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     }
     const path = join(dir, file);
     const mb = (statSync(path).size / 1024 / 1024).toFixed(1);
-    process.stdout.write(`  ↑ ${file} (${mb} MB) … `);
+    process.stdout.write(`  uploading ${file} (${mb} MB) … `);
     await store.upload(path, file);
     console.log('done');
     sent += 1;
