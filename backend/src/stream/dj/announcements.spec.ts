@@ -18,6 +18,18 @@ describe('track-info', () => {
     expect(cleanForSpeech('[FREE] Lauv Type Beat')).toBe('Lauv Type Beat');
   });
 
+  it('takes the filename from a Windows path', () => {
+    expect(
+      titleFromFilename('C:\\radio\\media\\02-morninglightmusic-happy-pop.mp3'),
+    ).toBe('morninglightmusic happy pop');
+  });
+
+  it('takes the filename from a bucket key with folders', () => {
+    expect(titleFromFilename('rock/2026/03-sculpture-7am.mp3')).toBe(
+      'sculpture 7am',
+    );
+  });
+
   it('makes a filename speakable when there are no tags', () => {
     expect(titleFromFilename('/m/02-morninglightmusic-happy-pop.mp3')).toBe(
       'morninglightmusic happy pop',

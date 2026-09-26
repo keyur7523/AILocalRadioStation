@@ -34,7 +34,9 @@ export function cleanForSpeech(raw: string): string {
  * `"01-morninglightmusic-happy-pop.mp3"` → `"morninglightmusic happy pop"`.
  */
 export function titleFromFilename(path: string): string {
-  const base = (path.split('/').pop() ?? path).replace(/\.[^.]+$/, '');
+  // Either separator: this sees native paths (backslashes on Windows) as well
+  // as bucket keys, which always use "/".
+  const base = (path.split(/[\\/]/).pop() ?? path).replace(/\.[^.]+$/, '');
   return base
     .replace(/^\d+\s*[-_.]\s*/, '')
     .replace(/[-_]+/g, ' ')

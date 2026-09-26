@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { spawn, type ChildProcessByStdio } from 'node:child_process';
+import { basename } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 import {
   describeConfig,
@@ -73,6 +74,14 @@ export class SequencerService implements OnModuleDestroy {
 
   /** Absolute paths of the tracks in play order. */
   private tracks: string[] = [];
+  /**
+   * Which library file each local path was resolved from. Kept rather than
+   * re-derived from the path: splitting on "/" missed on Windows, where paths
+   * use backslashes, and a basename cannot recover a bucket key with folders
+   * ("rock/song.mp3") — either way the library lookup failed and the DJ lost
+   * its edited titles and phonetic spellings.
+   */
+  private readonly fileByPath = new Map<string, string>();
   private songIndex = 0;
   private songsSinceDj = 0;
   private pendingDj = false;
@@ -129,6 +138,11 @@ export class SequencerService implements OnModuleDestroy {
     return !!this.encoder && !this.encoder.killed;
   }
 
+  /** The library file a playlist path came from, as stored in the database. */
+  private fileFor(path: string): string {
+    return this.fileByPath.get(path) ?? basename(path);
+  }
+
   /**
    * What the engine is actually playing, as filenames.
    *
@@ -143,11 +157,10 @@ export class SequencerService implements OnModuleDestroy {
     index: number;
     bufferedSec: number;
   } {
-    const name = (p: string) => p.split('/').pop() ?? p;
     const bytesPerSec = this.config.sampleRate * PCM.channels * 2;
     return {
-      playing: this.lastSongPath ? name(this.lastSongPath) : null,
-      playlist: this.tracks.map(name),
+      playing: this.lastSongPath ? this.fileFor(this.lastSongPath) : null,
+      playlist: this.tracks.map((p) => this.fileFor(p)),
       index: this.songIndex,
       // Seconds of decoded audio in hand ahead of the encoder — the margin a
       // CPU spike has to fit inside before listeners hear a dropout.
@@ -217,7 +230,9 @@ export class SequencerService implements OnModuleDestroy {
     const paths: string[] = [];
     for (const file of files) {
       try {
-        paths.push(await this.media.ensureLocal(file));
+        const path = await this.media.ensureLocal(file);
+        this.fileByPath.set(path, file);
+        paths.push(path);
       } catch (err) {
         this.logger.error(
           `Skipping ${file} — could not fetch it: ${(err as Error).message}`,
@@ -386,7 +401,7 @@ export class SequencerService implements OnModuleDestroy {
     if (this.stopping || !encoder) return;
 
     if (item.kind === 'song') {
-      const name = item.path.split('/').pop();
+      const name = this.fileFor(item.path);
       this.logger.log(`song: ${name}${item.talkover ? ' (DJ over tail)' : ''}`);
     } else if (item.kind === 'dj') {
       this.logger.log(`DJ break on air (${item.paths.length} segment(s))`);
@@ -898,7 +913,7 @@ export class SequencerService implements OnModuleDestroy {
     const trim: Trim = { start, duration: tailStart === null ? null : audible };
     if (start > 0 || tailStart !== null) {
       this.logger.log(
-        `trimmed ${path.split('/').pop()}: ` +
+        `trimmed ${this.fileFor(path)}: ` +
           `head ${start.toFixed(2)}s, tail ${(duration - (tailStart ?? duration)).toFixed(2)}s ` +
           `(${duration.toFixed(1)}s → ${audible.toFixed(1)}s)`,
       );
@@ -950,7 +965,7 @@ export class SequencerService implements OnModuleDestroy {
    */
   private async fromLibrary(path: string): Promise<TrackInfo | null> {
     if (!this.songs.available) return null;
-    const file = path.split('/').pop();
+    const file = this.fileFor(path);
     const row = (await this.songs.list()).find((s) => s.file === file);
     if (!row) return null;
     return {

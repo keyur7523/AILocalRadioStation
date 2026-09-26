@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { loadStreamConfig } from '../stream/stream.config';
 import { R2Client } from './r2.client';
 
@@ -142,7 +142,15 @@ export class MediaStoreService {
   ensureLocal(file: string): Promise<string> {
     if (!this.remote) return Promise.resolve(join(this.config.mediaDir, file));
 
-    const target = join(this.cacheDir, file);
+    // Keys may contain folders ("rock/song.mp3"), so the cache mirrors them.
+    // A key is data from the bucket, so it must not be able to climb out of
+    // the cache directory with "../".
+    const target = resolve(this.cacheDir, file);
+    if (!target.startsWith(resolve(this.cacheDir) + sep)) {
+      return Promise.reject(
+        new Error(`Refusing key outside the cache: ${file}`),
+      );
+    }
     if (existsSync(target) && statSync(target).size > 0) {
       return Promise.resolve(target);
     }
@@ -168,6 +176,7 @@ export class MediaStoreService {
     const shipped = join(this.config.mediaDir, file);
     if (existsSync(shipped)) return shipped;
     const bytes = await this.remote!.get(file);
+    mkdirSync(dirname(target), { recursive: true });
     const partial = `${target}.part`;
     await writeFile(partial, bytes);
     await rename(partial, target);
