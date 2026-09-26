@@ -10,6 +10,7 @@ import type { Song } from '../../db/entities/song.entity';
 import { SongsService } from '../../library/songs.service';
 import { MediaStoreService } from '../../media/media-store.service';
 import { DjService } from './dj.service';
+import { PcmFeeder } from './pcm-feeder';
 import { PCM } from './pcm.const';
 import { buildTrackInfo, type TrackInfo } from './track-info';
 
@@ -64,6 +65,8 @@ export class SequencerService implements OnModuleDestroy {
   private readonly config: StreamConfig = loadStreamConfig();
 
   private encoder?: ChildProcessByStdio<Writable, Readable, Readable>;
+  /** The decoded-audio cushion in front of the current encoder. */
+  private feeder?: PcmFeeder;
   private decoder?: ChildProcessByStdio<null, Readable, Readable>;
   private restartTimer?: NodeJS.Timeout;
   private stopping = false;
@@ -134,12 +137,22 @@ export class SequencerService implements OnModuleDestroy {
    * track and the engine keeps playing it until told otherwise. Surfacing this
    * is the only way to tell the two apart from outside.
    */
-  get onAir(): { playing: string | null; playlist: string[]; index: number } {
+  get onAir(): {
+    playing: string | null;
+    playlist: string[];
+    index: number;
+    bufferedSec: number;
+  } {
     const name = (p: string) => p.split('/').pop() ?? p;
+    const bytesPerSec = this.config.sampleRate * PCM.channels * 2;
     return {
       playing: this.lastSongPath ? name(this.lastSongPath) : null,
       playlist: this.tracks.map(name),
       index: this.songIndex,
+      // Seconds of decoded audio in hand ahead of the encoder — the margin a
+      // CPU spike has to fit inside before listeners hear a dropout.
+      bufferedSec:
+        Math.round(((this.feeder?.buffered ?? 0) / bytesPerSec) * 10) / 10,
     };
   }
 
@@ -176,8 +189,18 @@ export class SequencerService implements OnModuleDestroy {
   async refreshPlaylist(): Promise<number> {
     const next = await this.resolvePlaylist();
     this.tracks = next;
-    // The list may have shrunk under us; never index off the end.
-    if (this.songIndex >= next.length) this.songIndex = 0;
+    // Carry on from the song on air: whatever follows it in the *new* order
+    // plays next. Keeping the old index instead pointed at an arbitrary track
+    // of the new list — after a reorder it could replay the song just heard.
+    const onAir = next.indexOf(this.lastSongPath);
+    if (onAir >= 0) this.songIndex = (onAir + 1) % next.length;
+    else if (this.songIndex >= next.length) this.songIndex = 0;
+    // A break already prepared names its "next up" from the old order, so it
+    // would announce one song and play another. Drop it and let the boundary
+    // build a fresh one; the track lines are cached, so that is quick. A timer
+    // that has not fired yet is kept — it reads the order when it fires.
+    this.djPrefetch = undefined;
+    this.djReady = undefined;
     this.logger.log(`Playlist refreshed — ${next.length} track(s)`);
     return next.length;
   }
@@ -269,10 +292,12 @@ export class SequencerService implements OnModuleDestroy {
           `single real-time pacer, ${this.config.bufferSec}s buffer`,
       );
 
-      // As the encoder works through the cushion, let the current decoder top
-      // it back up. Registered once here, since stdin lives as long as the
-      // encoder while decoders come and go.
-      encoder.stdin.on('drain', () => this.decoder?.stdout.resume());
+      // The cushion lives in the feeder rather than in stdin's own buffer (see
+      // PcmFeeder for why). As it drains below half, the current decoder is
+      // resumed, so the encoder always has seconds of audio in hand.
+      this.feeder = new PcmFeeder(encoder.stdin, this.maxBufferBytes / 2, () =>
+        this.decoder?.stdout.resume(),
+      );
       encoder.stdin.on('error', (err) =>
         this.logger.warn(`encoder stdin: ${err.message}`),
       );
@@ -287,6 +312,8 @@ export class SequencerService implements OnModuleDestroy {
       encoder.on('close', (code) => {
         if (this.stopping) return;
         this.logger.warn(`encoder exited (code ${code}); restarting`);
+        this.feeder?.close();
+        this.feeder = undefined;
         this.killDecoder();
         this.clearPrefetch();
         this.encoder = undefined;
@@ -377,16 +404,15 @@ export class SequencerService implements OnModuleDestroy {
 
     // Hand PCM to the encoder ourselves rather than piping, for two reasons:
     // we must never close the encoder's stdin (a pipe would, ending the whole
-    // broadcast), and we want to run *ahead* of playback. The encoder consumes
-    // at real time, so letting its stdin buffer fill to `bufferSec` gives that
-    // many seconds of cushion — enough that a CPU spike (speech synthesis on a
-    // small host) can't starve the stream into silence. The decoder is paused
-    // once the cushion is full and resumes as the encoder drains it.
+    // broadcast), and we want to run *ahead* of playback so there are seconds
+    // of audio in hand when a CPU spike (speech synthesis on a small host)
+    // stalls the decoder. The decoder pauses once `bufferSec` is queued and the
+    // feeder resumes it at half, so the cushion never runs out between refills.
+    const feeder = this.feeder;
+    if (!feeder) return;
     decoder.stdout.on('data', (chunk: Buffer) => {
-      encoder.stdin.write(chunk);
-      if (encoder.stdin.writableLength >= this.maxBufferBytes) {
-        decoder.stdout.pause();
-      }
+      feeder.push(chunk);
+      if (feeder.buffered >= this.maxBufferBytes) decoder.stdout.pause();
     });
     decoder.stderr.on('data', (chunk: Buffer) =>
       this.logger.debug(`decoder: ${chunk.toString().trim()}`),
@@ -579,7 +605,10 @@ export class SequencerService implements OnModuleDestroy {
     if (!this.config.dj.announceTracks) {
       return { justPlayed: null, nextUp: null };
     }
-    const nextPath = this.tracks[this.songIndex];
+    // With a single track in rotation the song "coming up" is the one that
+    // just ended; teasing it would have the DJ announce a repeat as news.
+    const candidate = this.tracks[this.songIndex];
+    const nextPath = candidate === justPlayedPath ? undefined : candidate;
     const [justPlayed, nextUp] = await Promise.all([
       this.trackInfoFor(justPlayedPath),
       nextPath ? this.trackInfoFor(nextPath) : Promise.resolve(null),
@@ -1044,6 +1073,8 @@ export class SequencerService implements OnModuleDestroy {
       if (this.restartTimer) clearTimeout(this.restartTimer);
       this.clearPrefetch();
       this.killDecoder();
+      this.feeder?.close();
+      this.feeder = undefined;
       this.encoder?.stdin.end();
       this.encoder?.kill('SIGTERM');
     } catch (err) {
