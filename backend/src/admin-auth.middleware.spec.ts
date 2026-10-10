@@ -1,17 +1,18 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request, Response } from 'express';
 import { adminAuth } from './admin-auth.middleware';
 
 /** Run the middleware once and report what it did. */
 function call(password: string, authorization?: string) {
+  const headers: Record<string, string> = {};
   const res = {
     statusCode: 200,
-    headers: {} as Record<string, string>,
-    setHeader(k: string, v: string) {
-      this.headers[k.toLowerCase()] = v;
+    headers,
+    setHeader: (k: string, v: string) => {
+      headers[k.toLowerCase()] = v;
     },
-    status(code: number) {
-      this.statusCode = code;
-      return this;
+    status: (code: number) => {
+      res.statusCode = code;
+      return res;
     },
     send: jest.fn(),
   };
