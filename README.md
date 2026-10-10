@@ -88,6 +88,28 @@ airs until you untick it. YouTube often refuses servers in data centres like
 Render's; when a link is refused, upload the files instead. Only import music you
 have the rights to broadcast. Importing needs `ADMIN_PASSWORD` and the R2 bucket.
 
+**YouTube on the server** needs two things, both handled: a JavaScript runtime
+(yt-dlp is pointed at the server's Node), and usually sign-in cookies, because
+YouTube asks data-centre IPs to prove they aren't bots. Export cookies for a
+**separate** Google account in Netscape `cookies.txt` format, add them in Render
+as a Secret File named `youtube-cookies.txt`, and set
+`YTDLP_COOKIES_FILE=/etc/secrets/youtube-cookies.txt`. The import panel shows
+whether they loaded. They expire every few weeks; replace the file when imports
+say so.
+
+**Importing from your computer** avoids the bot check entirely, since home
+connections are rarely blocked. With yt-dlp and ffmpeg installed locally:
+
+```bash
+cd backend && npm run build
+STATION_URL=https://ailocalradiostation-backend.onrender.com \
+ADMIN_PASSWORD=... npm run import -- "<playlist or track link>"
+```
+
+It downloads here, then sends the files through the station's upload API, so
+they arrive exactly like an upload from the panel — skipped, tagged, and
+recognised if run again.
+
 Search is also available on the API:
 
 ```bash

@@ -76,6 +76,7 @@ ${ADMIN_CSS}
     <p class="hint">Only import music you have the rights to broadcast. Imported tracks arrive
       skipped, so nothing airs until you untick it in the list below.</p>
     <p class="reasons" id="importReasons" hidden></p>
+    <p class="hint" id="ytCookies" hidden></p>
     <div class="importgrid">
       <form id="linkForm" autocomplete="off">
         <label>From a link — a playlist or a single track
@@ -372,6 +373,11 @@ ${ADMIN_CSS}
     var reasons=q('importReasons');
     reasons.hidden=!d.reasons.length;
     reasons.textContent=d.reasons.join(' ');
+    // Whether YouTube requests are signed in. Only a summary — never the cookies.
+    var yt=q('ytCookies');
+    yt.hidden=!d.youtubeCookies;
+    yt.textContent=d.youtubeCookies?'YouTube cookies: '+d.youtubeCookies:'';
+    yt.style.color=d.youtubeCookiesOk?'':'#e0a24f';
     var running=busy(d.job);
     q('linkBtn').disabled=!d.link||running;
     q('fileBtn').disabled=!d.upload||running;

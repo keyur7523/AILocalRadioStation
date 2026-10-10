@@ -119,10 +119,27 @@ export function downloadArgs(opts: {
  * A short, readable reason from yt-dlp's error output, for the operator rather
  * than for a developer.
  */
-export function explainFailure(stderr: string): string {
+export function explainFailure(
+  stderr: string,
+  opts: { cookies?: boolean } = {},
+): string {
   const text = stderr.toLowerCase();
+  if (
+    text.includes('cookies are no longer valid') ||
+    text.includes('cookies have been rotated')
+  ) {
+    return 'The YouTube sign-in cookies have expired. Export fresh ones and replace the cookies file.';
+  }
   if (text.includes('confirm you') && text.includes('bot')) {
-    return "The site refused the server (it asks for a sign-in to prove it isn't a bot). Try uploading the file instead.";
+    return opts.cookies
+      ? 'YouTube refused the server even with the sign-in cookies. They may have expired; export fresh ones, or upload the file instead.'
+      : "The site refused the server (it asks for a sign-in to prove it isn't a bot). Add YouTube cookies, or upload the file instead.";
+  }
+  if (
+    text.includes('n challenge') ||
+    text.includes('no supported javascript runtime')
+  ) {
+    return "yt-dlp could not solve YouTube's challenge. Updating yt-dlp usually fixes this.";
   }
   if (
     text.includes('larger than max-filesize') ||
@@ -211,4 +228,93 @@ function isReal(value: unknown): boolean {
 function isSlugOf(title: string, stem: string): boolean {
   const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '');
   return !!stem && norm(title) === norm(stem);
+}
+
+/**
+ * Arguments every yt-dlp call needs, whatever it is doing.
+ *
+ * YouTube serves some formats only to clients that solve a JavaScript
+ * challenge, and yt-dlp uses only Deno for that unless told otherwise. The
+ * server already runs on Node, so it is named explicitly — by absolute path, so
+ * it is the same Node running this process. Cookies, when supplied, sign the
+ * requests in, which is what gets past YouTube's check on data-centre IPs.
+ */
+export function sessionArgs(opts: {
+  nodePath?: string;
+  cookiesFile?: string;
+}): string[] {
+  const args: string[] = [];
+  if (opts.nodePath) args.push('--js-runtimes', `node:${opts.nodePath}`);
+  if (opts.cookiesFile) args.push('--cookies', opts.cookiesFile);
+  return args;
+}
+
+/**
+ * What a cookies file holds, without ever exposing its values: whether it is in
+ * the Netscape format yt-dlp reads, and how many cookies belong to YouTube or
+ * Google (the ones that matter for signing in).
+ */
+export function inspectCookies(text: string): {
+  netscape: boolean;
+  youtube: number;
+} {
+  const lines = text.split(/\r?\n/);
+  const netscape = /^#\s*(Netscape )?HTTP Cookie File/i.test(lines[0] ?? '');
+  const youtube = lines.filter((l) => {
+    if (!l || (l.startsWith('#') && !l.startsWith('#HttpOnly_'))) return false;
+    const domain = l.replace(/^#HttpOnly_/, '').split('\t')[0] ?? '';
+    return /(^|\.)(youtube\.com|google\.com)$/.test(domain);
+  }).length;
+  return { netscape, youtube };
+}
+
+/** One track found at a link. */
+export interface ListingEntry {
+  id: string;
+  /** Which site it came from, e.g. "Youtube". */
+  extractor: string;
+  title: string;
+  /** The address to download this one track from. */
+  url: string;
+  /** Where it is stored when imported on the server. */
+  key: string;
+  tags: TrackTags;
+}
+
+/** Turn yt-dlp's listing of a link into the tracks to fetch, capped. */
+export function parseListing(
+  stdout: string,
+  fallbackUrl: string,
+  maxTracks: number,
+): ListingEntry[] {
+  let info: Record<string, unknown>;
+  try {
+    info = JSON.parse(stdout) as Record<string, unknown>;
+  } catch {
+    throw new Error('Could not read what that link contains');
+  }
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  const site = str(info.extractor_key) ?? str(info.extractor) ?? 'web';
+  const entries = Array.isArray(info.entries)
+    ? (info.entries as Record<string, unknown>[])
+    : [info];
+  return entries
+    .filter((e) => e && str(e.id))
+    .slice(0, maxTracks)
+    .map((e) => {
+      const id = str(e.id)!;
+      const extractor = str(e.ie_key) ?? site;
+      return {
+        id,
+        extractor,
+        title: str(e.title) ?? id,
+        url:
+          str(e.url) ??
+          str(e.webpage_url) ??
+          str(e.original_url) ??
+          fallbackUrl,
+        key: importKey(extractor, id),
+        tags: listingTags(e, info),
+      };
+    });
 }

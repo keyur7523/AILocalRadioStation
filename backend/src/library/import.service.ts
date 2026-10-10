@@ -8,24 +8,19 @@ import {
 } from '@nestjs/common';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { mkdir, rename, rm, unlink } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { chmod, copyFile, mkdir, readFile, rm, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, extname, join } from 'node:path';
+import { join } from 'node:path';
 import { MediaStoreService } from '../media/media-store.service';
 import { SequencerService } from '../stream/dj/sequencer.service';
 import { loadStreamConfig } from '../stream/stream.config';
-import { spawnLowPriority } from '../stream/tts/spawn-nice';
-import { readTags } from './read-tags';
 import { SongsService } from './songs.service';
+import { downloadTrack, runYtdlp, type YtRunner } from './yt-runner';
 import {
-  downloadArgs,
-  explainFailure,
-  importKey,
+  inspectCookies,
   listArgs,
-  listingTags,
-  mergeTags,
-  type TrackTags,
+  parseListing,
   uploadKey,
   validateImportUrl,
 } from './ytdlp';
@@ -85,6 +80,8 @@ export class ImportService implements OnModuleInit {
   private readonly logger = new Logger(ImportService.name);
   private readonly config = loadStreamConfig();
   private ytdlpVersion: string | null = null;
+  /** What the configured cookies file holds; null when none is configured. */
+  private cookies: { ok: boolean; note: string } | null = null;
   private job: ImportJob | null = null;
 
   constructor(
@@ -100,6 +97,38 @@ export class ImportService implements OnModuleInit {
         ? `yt-dlp ${this.ytdlpVersion} available for link imports`
         : 'yt-dlp not found — link imports are unavailable',
     );
+    this.cookies = await this.checkCookies();
+    if (this.cookies) {
+      this.logger[this.cookies.ok ? 'log' : 'warn'](
+        `YouTube cookies: ${this.cookies.note}`,
+      );
+    }
+  }
+
+  /**
+   * Validate the cookies file once at startup. Only counts are ever logged or
+   * reported — the values are credentials.
+   */
+  private async checkCookies(): Promise<{ ok: boolean; note: string } | null> {
+    const path = this.config.import.cookiesFile;
+    if (!path) return null;
+    let text: string;
+    try {
+      text = await readFile(path, 'utf8');
+    } catch {
+      return { ok: false, note: `file not found at ${path}` };
+    }
+    const { netscape, youtube } = inspectCookies(text);
+    if (!netscape) {
+      return {
+        ok: false,
+        note: 'not in the Netscape cookies.txt format yt-dlp needs',
+      };
+    }
+    if (youtube === 0) {
+      return { ok: false, note: 'contains no YouTube or Google cookies' };
+    }
+    return { ok: true, note: `signed in (${youtube} YouTube/Google cookies)` };
   }
 
   /** What can be imported right now, and why not when it can't. */
@@ -121,7 +150,12 @@ export class ImportService implements OnModuleInit {
   }
 
   status() {
-    return { ...this.capabilities(), job: this.job };
+    return {
+      ...this.capabilities(),
+      youtubeCookies: this.cookies?.note ?? null,
+      youtubeCookiesOk: this.cookies?.ok ?? false,
+      job: this.job,
+    };
   }
 
   private get busy(): boolean {
@@ -184,11 +218,13 @@ export class ImportService implements OnModuleInit {
     const imported = new Set<string>();
     try {
       await mkdir(dir, { recursive: true });
-      const { stdout } = await this.ytdlp(
+      const runner = await this.runnerFor(dir);
+      const { stdout } = await runYtdlp(
+        runner,
         listArgs(url, this.config.import.maxTracks),
         120_000,
       );
-      const plan = this.parseListing(stdout, url);
+      const plan = parseListing(stdout, url, this.config.import.maxTracks);
       if (plan.length === 0)
         throw new Error('No tracks were found at that link');
       job.items = plan.map((p) => ({ title: p.title, state: 'queued' }));
@@ -204,8 +240,13 @@ export class ImportService implements OnModuleInit {
         }
         try {
           item.state = 'downloading';
-          const file = await this.download(entry.url, dir);
-          await this.fillTags(file, entry.tags);
+          const file = await downloadTrack(
+            runner,
+            entry.url,
+            dir,
+            entry.tags,
+            this.config.import.maxFileMb,
+          );
           item.state = 'uploading';
           await this.media.upload(file, entry.key);
           await unlink(file).catch(() => {});
@@ -283,6 +324,29 @@ export class ImportService implements OnModuleInit {
     }
   }
 
+  /**
+   * How yt-dlp runs for one job. yt-dlp writes refreshed cookies back to the
+   * file it was given, and the configured file may be read-only (a Render
+   * secret file is), so each job signs in with its own private copy, deleted
+   * with the job's folder.
+   */
+  private async runnerFor(dir: string): Promise<YtRunner> {
+    let cookiesFile: string | undefined;
+    if (this.cookies?.ok) {
+      cookiesFile = join(dir, 'cookies.txt');
+      await copyFile(this.config.import.cookiesFile, cookiesFile);
+      await chmod(cookiesFile, 0o600);
+    }
+    return {
+      ytdlpPath: this.config.import.ytdlpPath,
+      ffmpegPath: this.config.ffmpegPath,
+      ffprobePath: this.config.ffprobePath,
+      nodePath: process.execPath,
+      cookiesFile,
+      lowPriority: true,
+    };
+  }
+
   private finish(job: ImportJob): void {
     job.finishedAt = new Date().toISOString();
     const count = (s: ItemState) =>
@@ -292,117 +356,6 @@ export class ImportService implements OnModuleInit {
         `${count('skipped')} already present, ${count('failed')} failed` +
         (job.error ? ` — ${job.error}` : ''),
     );
-  }
-
-  /** Turn yt-dlp's listing into the tracks to fetch, capped at the limit. */
-  private parseListing(
-    stdout: string,
-    url: string,
-  ): { title: string; url: string; key: string; tags: TrackTags }[] {
-    let info: Record<string, unknown>;
-    try {
-      info = JSON.parse(stdout) as Record<string, unknown>;
-    } catch {
-      throw new Error('Could not read what that link contains');
-    }
-    const str = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
-    const extractor = str(info.extractor_key) ?? str(info.extractor) ?? 'web';
-    const entries = Array.isArray(info.entries)
-      ? (info.entries as Record<string, unknown>[])
-      : [info];
-    return entries
-      .filter((e) => e && str(e.id))
-      .slice(0, this.config.import.maxTracks)
-      .map((e) => ({
-        title: str(e.title) ?? str(e.id)!,
-        url: str(e.url) ?? str(e.webpage_url) ?? str(e.original_url) ?? url,
-        key: importKey(str(e.ie_key) ?? extractor, str(e.id)!),
-        tags: listingTags(e, info),
-      }));
-  }
-
-  /** Download one track as a tagged MP3; returns the finished file's path. */
-  private async download(url: string, dir: string): Promise<string> {
-    const { stdout } = await this.ytdlp(
-      downloadArgs({
-        url,
-        outDir: dir,
-        maxFileMb: this.config.import.maxFileMb,
-        ffmpegPath: this.config.ffmpegPath,
-      }),
-      10 * 60_000,
-    );
-    const file = stdout.trim().split('\n').filter(Boolean).pop();
-    if (!file || !existsSync(file) || statSync(file).size === 0) {
-      throw new Error('The download produced no audio');
-    }
-    return file;
-  }
-
-  /**
-   * Give the downloaded file a real title and artist where it has none.
-   * Some sites hand out direct file links, which arrive tagged with just the
-   * file name; the listing knew better. Copies the audio untouched.
-   */
-  private async fillTags(file: string, listing: TrackTags): Promise<void> {
-    const current = await readTags(this.config.ffprobePath, file);
-    const stem = basename(file, extname(file));
-    const { tags, changed } = mergeTags(current, listing, stem);
-    if (!changed) return;
-    const out = `${file}.tagged.mp3`;
-    await new Promise<void>((resolve, reject) => {
-      const args = [
-        '-v',
-        'error',
-        '-y',
-        '-i',
-        file,
-        '-map',
-        '0',
-        '-c',
-        'copy',
-        '-id3v2_version',
-        '3',
-      ];
-      if (tags.title) args.push('-metadata', `title=${tags.title}`);
-      if (tags.artist) args.push('-metadata', `artist=${tags.artist}`);
-      args.push(out);
-      const proc = spawn(this.config.ffmpegPath, args, { stdio: 'ignore' });
-      proc.on('error', reject);
-      proc.on('close', (code) =>
-        code === 0 ? resolve() : reject(new Error(`retag failed (${code})`)),
-      );
-    });
-    await rename(out, file);
-  }
-
-  /** Run yt-dlp at low priority, failing with a readable reason. */
-  private ytdlp(
-    args: string[],
-    timeoutMs: number,
-  ): Promise<{ stdout: string; stderr: string }> {
-    return new Promise((resolve, reject) => {
-      const proc = spawnLowPriority(this.config.import.ytdlpPath, args, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      let stdout = '';
-      let stderr = '';
-      proc.stdout?.on('data', (d: Buffer) => (stdout += d.toString()));
-      proc.stderr?.on('data', (d: Buffer) => (stderr += d.toString()));
-      const timer = setTimeout(() => {
-        proc.kill('SIGKILL');
-        reject(new Error('Timed out'));
-      }, timeoutMs);
-      proc.on('error', (err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-      proc.on('close', (code) => {
-        clearTimeout(timer);
-        if (code === 0) resolve({ stdout, stderr });
-        else reject(new Error(explainFailure(stderr)));
-      });
-    });
   }
 
   /** The yt-dlp version, or null when it isn't installed. */

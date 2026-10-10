@@ -5,3 +5,6 @@ dist
 npm-debug.log
 *.log
 .git
+# Never bake YouTube sign-in cookies into the image. Render also places secret
+# files in the build context root, which this Dockerfile copies wholesale.
+*cookies*.txt

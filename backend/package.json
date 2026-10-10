@@ -21,7 +21,8 @@
     "fetch:playlist": "node scripts/fetch-playlist.mjs",
     "pregenerate": "node dist/tools/pregenerate-announcements",
     "media:push": "node dist/tools/media-push",
-    "media:list": "node dist/tools/media-list"
+    "media:list": "node dist/tools/media-list",
+    "import": "node dist/tools/import-local"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

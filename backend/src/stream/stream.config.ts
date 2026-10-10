@@ -45,6 +45,12 @@ export interface StreamConfig {
     maxFileMb: number;
     /** Path to the yt-dlp binary. */
     ytdlpPath: string;
+    /**
+     * A Netscape-format cookies file exported from a signed-in YouTube session.
+     * Signing requests in is what gets past YouTube's bot check on data-centre
+     * IPs. Use a separate account: YouTube can restrict one used this way.
+     */
+    cookiesFile: string;
   };
   /**
    * Cloudflare R2 (or any S3-compatible bucket) holding the music. All four
@@ -184,6 +190,7 @@ export function loadStreamConfig(): StreamConfig {
       maxTracks: Math.max(1, Number(process.env.IMPORT_MAX_TRACKS ?? 25)),
       maxFileMb: Math.max(1, Number(process.env.IMPORT_MAX_FILE_MB ?? 50)),
       ytdlpPath: process.env.YTDLP ?? 'yt-dlp',
+      cookiesFile: process.env.YTDLP_COOKIES_FILE ?? '',
     },
     r2: {
       accountId: process.env.R2_ACCOUNT_ID ?? '',

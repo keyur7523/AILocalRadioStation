@@ -30,3 +30,6 @@ backend/media-local/
 
 # Voice comparison samples (generated listening material, not source)
 voice-samples/
+
+# YouTube sign-in cookies are credentials — never commit them
+*cookies*.txt

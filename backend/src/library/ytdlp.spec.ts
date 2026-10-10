@@ -2,9 +2,12 @@ import {
   downloadArgs,
   explainFailure,
   importKey,
+  inspectCookies,
   keyPart,
   listingTags,
   mergeTags,
+  parseListing,
+  sessionArgs,
   uploadKey,
   validateImportUrl,
 } from './ytdlp';
@@ -175,5 +178,120 @@ describe('track tags', () => {
     );
     expect(tags).toEqual({ title: 'Daydream', artist: 'RINZO' });
     expect(changed).toBe(false);
+  });
+});
+
+describe('sessionArgs', () => {
+  it('names Node explicitly, by path, so YouTube challenges can be solved', () => {
+    expect(sessionArgs({ nodePath: '/usr/local/bin/node' })).toEqual([
+      '--js-runtimes',
+      'node:/usr/local/bin/node',
+    ]);
+  });
+
+  it('adds cookies only when a file is given', () => {
+    expect(sessionArgs({})).toEqual([]);
+    expect(sessionArgs({ cookiesFile: '/tmp/c.txt' })).toEqual([
+      '--cookies',
+      '/tmp/c.txt',
+    ]);
+  });
+});
+
+describe('inspectCookies', () => {
+  const row = (domain: string, name: string) =>
+    [domain, 'TRUE', '/', 'TRUE', '1999999999', name, 'secret'].join('\t');
+
+  it('counts YouTube and Google cookies in a Netscape file', () => {
+    const text = [
+      '# Netscape HTTP Cookie File',
+      row('.youtube.com', 'SID'),
+      `#HttpOnly_${row('.youtube.com', 'HSID')}`,
+      row('.google.com', 'SAPISID'),
+      row('.example.com', 'other'),
+    ].join('\n');
+    expect(inspectCookies(text)).toEqual({ netscape: true, youtube: 3 });
+  });
+
+  it('notices a file that is not in the Netscape format', () => {
+    expect(inspectCookies('[{"name":"SID"}]').netscape).toBe(false);
+  });
+
+  it('does not count look-alike domains', () => {
+    const text = ['# HTTP Cookie File', row('.notyoutube.com', 'x')].join('\n');
+    expect(inspectCookies(text).youtube).toBe(0);
+  });
+});
+
+describe('parseListing', () => {
+  it('turns a playlist into tracks with stable keys, capped', () => {
+    const listing = JSON.stringify({
+      extractor_key: 'YoutubeTab',
+      entries: [
+        {
+          id: 'aaa111',
+          ie_key: 'Youtube',
+          title: 'One',
+          url: 'https://youtu.be/aaa111',
+        },
+        {
+          id: 'bbb222',
+          ie_key: 'Youtube',
+          title: 'Two',
+          url: 'https://youtu.be/bbb222',
+        },
+        {
+          id: 'ccc333',
+          ie_key: 'Youtube',
+          title: 'Three',
+          url: 'https://youtu.be/ccc333',
+        },
+      ],
+    });
+    const entries = parseListing(listing, 'https://x', 2);
+    expect(entries.map((e) => e.key)).toEqual([
+      'imports/youtube-aaa111.mp3',
+      'imports/youtube-bbb222.mp3',
+    ]);
+    expect(entries[0]).toMatchObject({
+      id: 'aaa111',
+      extractor: 'Youtube',
+      title: 'One',
+    });
+  });
+
+  it('treats a single video as a one-track listing', () => {
+    const entries = parseListing(
+      JSON.stringify({
+        id: 'zzz',
+        extractor_key: 'Youtube',
+        title: 'Solo',
+        webpage_url: 'https://youtu.be/zzz',
+      }),
+      'https://fallback',
+      25,
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].url).toBe('https://youtu.be/zzz');
+  });
+});
+
+describe('explainFailure with cookies', () => {
+  const bot = "ERROR: [youtube] x: Sign in to confirm you're not a bot.";
+
+  it('suggests adding cookies when none were used', () => {
+    expect(explainFailure(bot)).toMatch(/Add YouTube cookies/);
+  });
+
+  it('suggests fresh cookies when they were used', () => {
+    expect(explainFailure(bot, { cookies: true })).toMatch(/expired/);
+  });
+
+  it('recognises cookies YouTube has rotated out', () => {
+    expect(
+      explainFailure(
+        'ERROR: The provided YouTube account cookies are no longer valid.',
+      ),
+    ).toMatch(/Export fresh ones/);
   });
 });
