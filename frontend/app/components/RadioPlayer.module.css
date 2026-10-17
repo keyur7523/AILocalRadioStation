@@ -10,7 +10,7 @@
   box-shadow:
     0 1px 0 var(--edge) inset,
     0 30px 70px -30px var(--shadow);
-  animation: materialize 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: materialize 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
 }
 
 /* Arrive as a material: sharpen and settle, rather than only fading in. */
@@ -340,7 +340,7 @@
 /* Motion turned down: arrive with a plain fade, and no pulsing light. */
 @media (prefers-reduced-motion: reduce) {
   .console {
-    animation: fade 0.3s ease both;
+    animation: fade 0.3s ease backwards;
   }
   .onairLive .onairDot {
     animation: none;
