@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
-import { Instrument_Serif, DM_Mono } from "next/font/google";
+import { DM_Mono } from "next/font/google";
 import "./globals.css";
-
-const displaySerif = Instrument_Serif({
-  variable: "--font-display",
-  weight: "400",
-  subsets: ["latin"],
-  style: ["normal", "italic"],
-});
 
 const mono = DM_Mono({
   variable: "--font-mono",
@@ -29,7 +22,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${displaySerif.variable} ${mono.variable} antialiased`}
+      className={`${mono.variable} antialiased`}
     >
       <body>{children}</body>
     </html>

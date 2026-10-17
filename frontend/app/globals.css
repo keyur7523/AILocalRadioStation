@@ -1,29 +1,84 @@
 @import "tailwindcss";
 
 /*
-  KIND FM — warm analog "on air" theme.
-  Backlit-amber dial glow over deep warm charcoal. Editorial serif wordmark,
-  mono technical readouts. No cool greys, no purple gradients.
+  Theme: Daylight (light) and Evening (dark), switched by the system setting.
+  Every colour the player uses is a token here, so a future theme picker only
+  has to swap this block. All themes on file: docs/themes.md.
 */
 
 :root {
-  --bg: #14100c;
-  --bg-panel: #1d1711;
-  --bg-panel-2: #251d15;
-  --line: rgba(244, 236, 224, 0.08);
-  --line-strong: rgba(244, 236, 224, 0.16);
+  color-scheme: light;
 
-  --cream: #f4ece0;
-  --muted: #b6a890;
-  --faint: #7c7060;
+  /* Daylight */
+  --bg: #f4f1ec;
+  --glow-1: #ffc9a8;
+  --glow-2: #c9b8ff;
+  --glow-3: #a8d8ff;
+  --glow-opacity: 0.9;
 
-  --amber: #f2a93b;
-  --amber-bright: #ffc061;
-  --amber-deep: #c9781f;
-  --amber-glow: rgba(242, 169, 59, 0.5);
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-solid: #fbfaf8;
+  --edge: rgba(255, 255, 255, 0.85);
+  --shadow: rgba(70, 45, 30, 0.14);
 
-  --font-display: var(--font-display), "Times New Roman", serif;
+  --line: rgba(20, 22, 28, 0.08);
+  --line-strong: rgba(20, 22, 28, 0.16);
+
+  --text: #14161c;
+  --text-2: #4a5160;
+  --text-3: #5f6676;
+
+  --accent: #e2553a;
+  --accent-bright: #ec6b50;
+  --accent-deep: #c2412a;
+  --accent-glow: rgba(226, 85, 58, 0.35);
+  --on-accent: #ffffff;
+  --track: rgba(20, 22, 28, 0.12);
+
+  --font-display: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: var(--font-mono), ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* Evening */
+    --bg: #1c1a22;
+    --glow-1: #c98a6b;
+    --glow-2: #8c7cc9;
+    --glow-3: #6e9cc4;
+    --glow-opacity: 0.4;
+
+    --glass: rgba(255, 255, 255, 0.07);
+    --glass-solid: #26232d;
+    --edge: rgba(255, 240, 230, 0.16);
+    --shadow: rgba(0, 0, 0, 0.35);
+
+    --line: rgba(244, 239, 234, 0.08);
+    --line-strong: rgba(244, 239, 234, 0.16);
+
+    --text: #f4efea;
+    --text-2: #bdb4ac;
+    --text-3: #a39a92;
+
+    --accent: #f08a6e;
+    --accent-bright: #f6a188;
+    --accent-deep: #d86e52;
+    --accent-glow: rgba(240, 138, 110, 0.4);
+    --on-accent: #2a120b;
+    --track: rgba(244, 239, 234, 0.16);
+  }
+}
+
+/* More contrast asked for: solid surfaces and firmer edges. */
+@media (prefers-contrast: more) {
+  :root {
+    --glass: var(--glass-solid);
+    --edge: var(--line-strong);
+    --text-2: var(--text);
+    --text-3: var(--text);
+  }
 }
 
 html,
@@ -34,25 +89,35 @@ body {
 body {
   margin: 0;
   background: var(--bg);
-  color: var(--cream);
+  color: var(--text);
   font-family: var(--font-mono);
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  /* A light/dark switch eases instead of flashing. */
+  transition:
+    background-color 0.4s ease,
+    color 0.4s ease;
 }
 
 ::selection {
-  background: var(--amber);
-  color: #1a1208;
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
-/* The room: a warm amber spotlight bleeding from behind the console,
-   layered over faint film grain so the dark never reads as flat. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* The room: soft pools of colour behind the glass. Still, not animated, so it
+   never pulls at the eye while someone is listening. */
 .stage {
   position: relative;
   min-height: 100dvh;
   display: grid;
   place-items: center;
-  padding: 2rem 1.25rem;
+  padding: 2rem 1rem;
   overflow: hidden;
   isolation: isolate;
 }
@@ -60,24 +125,13 @@ body {
 .stage::before {
   content: "";
   position: absolute;
-  inset: -20% -10% auto -10%;
-  height: 80%;
-  background: radial-gradient(
-    60% 70% at 50% 0%,
-    var(--amber-glow),
-    transparent 70%
-  );
-  opacity: 0.55;
-  z-index: -2;
-  pointer-events: none;
-}
-
-.stage::after {
-  content: "";
-  position: absolute;
   inset: 0;
   z-index: -1;
-  opacity: 0.04;
   pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: var(--glow-opacity);
+  background:
+    radial-gradient(38% 45% at 18% 12%, var(--glow-1), transparent 70%),
+    radial-gradient(40% 48% at 85% 88%, var(--glow-2), transparent 70%),
+    radial-gradient(30% 36% at 62% 40%, var(--glow-3), transparent 70%);
+  transition: opacity 0.4s ease;
 }

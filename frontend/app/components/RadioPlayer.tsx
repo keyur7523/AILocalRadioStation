@@ -101,6 +101,20 @@ export default function RadioPlayer() {
     resize();
     window.addEventListener("resize", resize);
 
+    // The bars take the theme's accent, re-read when light/dark switches.
+    const colors = { bright: "", base: "", deep: "" };
+    const readColors = () => {
+      const css = getComputedStyle(canvas);
+      colors.bright = css.getPropertyValue("--accent-bright").trim();
+      colors.base = css.getPropertyValue("--accent").trim();
+      colors.deep = css.getPropertyValue("--accent-deep").trim();
+    };
+    readColors();
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    scheme.addEventListener("change", readColors);
+    // With motion turned down, the off-air shimmer holds still.
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)");
+
     const BARS = 56;
     const freq = new Uint8Array(
       analyserRef.current?.frequencyBinCount ?? 128,
@@ -119,7 +133,7 @@ export default function RadioPlayer() {
 
       const gap = 3;
       const barW = (w - gap * (BARS - 1)) / BARS;
-      const t = (now - start) / 1000;
+      const t = still.matches ? 0 : (now - start) / 1000;
 
       for (let i = 0; i < BARS; i++) {
         let level: number;
@@ -139,15 +153,11 @@ export default function RadioPlayer() {
         const x = i * (barW + gap);
 
         const grad = ctx2d.createLinearGradient(0, mid - barH, 0, mid + barH);
-        if (live) {
-          grad.addColorStop(0, "#ffc061");
-          grad.addColorStop(0.5, "#f2a93b");
-          grad.addColorStop(1, "#c9781f");
-        } else {
-          grad.addColorStop(0, "rgba(242,169,59,0.35)");
-          grad.addColorStop(1, "rgba(201,120,31,0.2)");
-        }
+        grad.addColorStop(0, colors.bright);
+        grad.addColorStop(0.5, colors.base);
+        grad.addColorStop(1, colors.deep);
         ctx2d.fillStyle = grad;
+        ctx2d.globalAlpha = live ? 1 : 0.3;
 
         const r = Math.min(barW / 2, 2);
         roundedRect(ctx2d, x, mid - barH, barW, barH * 2, r);
@@ -159,6 +169,7 @@ export default function RadioPlayer() {
     return () => {
       cancelAnimationFrame(rafRef.current);
       window.removeEventListener("resize", resize);
+      scheme.removeEventListener("change", readColors);
     };
   }, []);
 

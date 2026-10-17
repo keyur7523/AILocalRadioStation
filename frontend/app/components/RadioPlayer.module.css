@@ -1,25 +1,28 @@
+/* The player is a pane of frosted glass floating over the room's colour. */
 .console {
   width: min(540px, 100%);
   padding: 2rem 2rem 1.6rem;
-  border-radius: 22px;
-  background:
-    linear-gradient(180deg, var(--bg-panel-2), var(--bg-panel));
-  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--edge);
   box-shadow:
-    0 1px 0 rgba(255, 220, 170, 0.06) inset,
-    0 40px 80px -40px rgba(0, 0, 0, 0.9),
-    0 0 60px -20px var(--amber-glow);
-  animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    0 1px 0 var(--edge) inset,
+    0 30px 70px -30px var(--shadow);
+  animation: materialize 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-@keyframes rise {
+/* Arrive as a material: sharpen and settle, rather than only fading in. */
+@keyframes materialize {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.985);
+    transform: scale(0.97);
+    filter: blur(10px);
   }
 }
 
-/* ---- header / bezel ---- */
+/* ---- header ---- */
 .bezel {
   display: flex;
   align-items: flex-start;
@@ -31,13 +34,14 @@
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .fmTag {
   font-size: 0.62rem;
-  letter-spacing: 0.22em;
-  color: var(--amber);
-  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  letter-spacing: 0.2em;
+  color: var(--accent-deep);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
   border-radius: 5px;
   padding: 0.12rem 0.32rem;
   transform: translateY(-0.35rem);
@@ -45,19 +49,22 @@
 
 .wordmark {
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 2.6rem;
-  line-height: 0.9;
+  font-weight: 700;
+  font-size: clamp(2.1rem, 7vw, 2.6rem);
+  line-height: 1;
+  /* Large type reads looser than it is; pull it in. */
+  letter-spacing: -0.025em;
   margin: 0;
-  color: var(--cream);
-  letter-spacing: 0.01em;
+  color: var(--text);
+  overflow-wrap: anywhere;
 }
 
 .freq {
   font-family: var(--font-display);
-  font-style: italic;
-  font-size: 1.4rem;
-  color: var(--amber);
+  font-weight: 500;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  color: var(--accent-deep);
 }
 
 .onair {
@@ -65,65 +72,61 @@
   align-items: center;
   gap: 0.45rem;
   font-size: 0.66rem;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--text-3);
   border: 1px solid var(--line-strong);
   border-radius: 999px;
   padding: 0.32rem 0.62rem;
   white-space: nowrap;
-  transition: color 0.3s ease, border-color 0.3s ease;
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease;
 }
 
 .onairDot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--text-3);
   transition: background 0.3s ease;
 }
 
 .onairLive {
-  color: var(--amber-bright);
-  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+  color: var(--accent-deep);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .onairLive .onairDot {
-  background: var(--amber-bright);
-  box-shadow: 0 0 0 0 var(--amber-glow);
+  background: var(--accent);
   animation: pulse 1.6s ease-out infinite;
 }
 
 @keyframes pulse {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--amber) 70%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent);
   }
-  70% {
-    box-shadow: 0 0 0 9px transparent;
-  }
+  70%,
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    box-shadow: 0 0 0 9px transparent;
   }
 }
 
 .tagline {
   margin: 0.5rem 0 0;
   font-size: 0.82rem;
-  color: var(--muted);
-  letter-spacing: 0.01em;
+  color: var(--text-2);
 }
 
 /* ---- visualizer ---- */
+/* A tinted well in the glass, not a second pane of glass on top of it. */
 .scope {
   position: relative;
   margin: 1.4rem 0 1.5rem;
   height: 132px;
-  border-radius: 14px;
-  background:
-    radial-gradient(120% 90% at 50% 50%, rgba(242, 169, 59, 0.07), transparent 70%),
-    #100c08;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--text) 4%, transparent);
   border: 1px solid var(--line);
-  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.6);
   overflow: hidden;
 }
 
@@ -139,9 +142,9 @@
   inset: auto 0 0.6rem 0;
   text-align: center;
   font-size: 0.66rem;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--text-3);
   pointer-events: none;
 }
 
@@ -160,26 +163,36 @@
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: #1a1208;
-  background: radial-gradient(circle at 38% 32%, var(--amber-bright), var(--amber-deep));
-  border: 1px solid color-mix(in srgb, var(--amber) 70%, #000);
+  color: var(--on-accent);
+  background: radial-gradient(
+    circle at 38% 32%,
+    var(--accent-bright),
+    var(--accent-deep)
+  );
+  border: 1px solid color-mix(in srgb, var(--accent-deep) 80%, #000);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.4) inset,
-    0 -2px 6px rgba(0, 0, 0, 0.3) inset,
-    0 10px 26px -8px var(--amber-glow);
-  transition: transform 0.18s ease, box-shadow 0.25s ease;
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 12px 28px -10px var(--accent-glow);
+  /* No double-tap zoom wait: the press registers at once. */
+  touch-action: manipulation;
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.7, 0.2, 1),
+    box-shadow 0.25s ease;
 }
 
-.knob:hover {
-  transform: translateY(-1px) scale(1.03);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 -2px 6px rgba(0, 0, 0, 0.3) inset,
-    0 14px 32px -8px var(--amber-glow);
+@media (hover: hover) {
+  .knob:hover {
+    transform: translateY(-1px) scale(1.03);
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.45) inset,
+      0 16px 34px -10px var(--accent-glow);
+  }
 }
 
+/* Feedback on the press itself, not on release. */
 .knob:active {
-  transform: translateY(0) scale(0.98);
+  transform: scale(0.95);
+  transition-duration: 0.1s;
 }
 
 .knob svg {
@@ -199,9 +212,9 @@
 
 .faderLabel {
   font-size: 0.62rem;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--text-3);
 }
 
 .fader input[type="range"] {
@@ -212,35 +225,41 @@
   border-radius: 999px;
   background: linear-gradient(
     to right,
-    var(--amber) var(--fill, 80%),
-    rgba(244, 236, 224, 0.12) var(--fill, 80%)
+    var(--accent) var(--fill, 80%),
+    var(--track) var(--fill, 80%)
   );
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .fader input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
-  background: var(--cream);
-  border: 1px solid var(--amber-deep);
-  box-shadow: 0 0 10px -2px var(--amber-glow);
+  background: #fff;
+  border: 1px solid var(--accent-deep);
+  box-shadow: 0 2px 8px -2px var(--shadow);
+  transition: transform 0.1s ease;
+}
+
+.fader input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.15);
 }
 
 .fader input[type="range"]::-moz-range-thumb {
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--amber-deep);
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--accent-deep);
   border-radius: 50%;
-  background: var(--cream);
+  background: #fff;
 }
 
 .error {
   margin: 0.9rem 0 0;
   font-size: 0.74rem;
-  color: #f0997b;
+  color: var(--accent-deep);
 }
 
 /* ---- readout ---- */
@@ -252,12 +271,12 @@
   padding-top: 1rem;
   border-top: 1px solid var(--line);
   font-size: 0.72rem;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .clock {
-  color: var(--amber);
-  letter-spacing: 0.08em;
+  color: var(--accent-deep);
+  letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;
 }
 
@@ -265,7 +284,7 @@
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: var(--faint);
+  background: var(--text-3);
 }
 
 .listeners {
@@ -278,29 +297,73 @@
   font-size: 0.66rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--cream);
+  color: var(--text);
   background: transparent;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   padding: 0.34rem 0.66rem;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  touch-action: manipulation;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease,
+    transform 0.1s ease;
 }
 
-.share:hover {
-  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
-  color: var(--amber-bright);
-  background: rgba(242, 169, 59, 0.06);
+@media (hover: hover) {
+  .share:hover {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    color: var(--accent-deep);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+}
+
+.share:active {
+  transform: scale(0.97);
 }
 
 @media (max-width: 480px) {
   .console {
-    padding: 1.5rem 1.3rem 1.2rem;
+    padding: 1.5rem 1.25rem 1.2rem;
   }
-  .wordmark {
-    font-size: 2.1rem;
+  /* Give the station name the full width, with the badge above it. */
+  .bezel {
+    flex-direction: column-reverse;
+    gap: 0.9rem;
   }
   .readout {
     flex-wrap: wrap;
+  }
+}
+
+/* Motion turned down: arrive with a plain fade, and no pulsing light. */
+@media (prefers-reduced-motion: reduce) {
+  .console {
+    animation: fade 0.3s ease both;
+  }
+  .onairLive .onairDot {
+    animation: none;
+  }
+  .knob,
+  .knob:hover,
+  .knob:active,
+  .share:active {
+    transform: none;
+  }
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Transparency turned down: a solid card instead of frosted glass. */
+@media (prefers-reduced-transparency: reduce) {
+  .console {
+    background: var(--glass-solid);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }
