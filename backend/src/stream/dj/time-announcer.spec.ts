@@ -1,4 +1,4 @@
-import { formatTimePhrase } from './time-announcer';
+import { formatClock, formatTimePhrase } from './time-announcer';
 
 describe('time-announcer', () => {
   it('formats EDT (summer) time', () => {
@@ -13,7 +13,7 @@ describe('time-announcer', () => {
     // 20:05 UTC → 15:05 EST (UTC-5)
     const d = new Date('2026-01-15T20:05:00Z');
     expect(formatTimePhrase(d, 'America/New_York')).toBe(
-      'The time is 3:05 PM.',
+      'The time is 3 oh 5 PM.',
     );
   });
 
@@ -28,5 +28,20 @@ describe('time-announcer', () => {
     const phrase = formatTimePhrase(d, 'America/New_York');
     // U+00A0 (no-break) / U+202F (narrow no-break) — what ICU emits before AM/PM.
     expect(phrase).not.toMatch(/[\u00A0\u202F]/);
+  });
+});
+
+describe('formatClock', () => {
+  const at = (utc: string) => formatClock(new Date(utc), 'UTC');
+
+  it('says single-digit minutes the way a DJ would', () => {
+    expect(at('2026-07-18T15:06:00Z')).toBe('3 oh 6 PM');
+    expect(at('2026-07-18T09:01:00Z')).toBe('9 oh 1 AM');
+  });
+
+  it('leaves other minutes, and the top of the hour, as they were', () => {
+    expect(at('2026-07-18T15:42:00Z')).toBe('3:42 PM');
+    expect(at('2026-07-18T15:10:00Z')).toBe('3:10 PM');
+    expect(at('2026-07-18T15:00:00Z')).toBe('3:00 PM');
   });
 });

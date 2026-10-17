@@ -16,18 +16,24 @@ export function formatTimePhrase(now: Date, timeZone: string): string {
 }
 
 /**
- * Format the local wall-clock time as `"3:42 PM"` in the given IANA timezone.
+ * Format the local wall-clock time to be spoken, as `"3:42 PM"` (or
+ * `"3 oh 6 PM"` for 3:06) in the given IANA timezone.
  * `Intl.DateTimeFormat` (full ICU in Node 22) handles DST correctly. Recent ICU
  * emits a narrow no-break space (U+202F) before AM/PM; we normalize all
  * whitespace to plain spaces so the string is clean for both tests and TTS.
  */
 export function formatClock(now: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-    .format(now)
-    .replace(/\s+/g, ' ');
+  return (
+    new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    })
+      .format(now)
+      .replace(/\s+/g, ' ')
+      // Speech engines read "3:06" digit by digit ("three zero six"); a radio
+      // DJ says "three oh six".
+      .replace(/:0([1-9])/, ' oh $1')
+  );
 }

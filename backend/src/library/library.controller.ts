@@ -15,6 +15,7 @@ import {
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
+import { formatClock } from '../stream/dj/time-announcer';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { diskStorage } from 'multer';
@@ -275,11 +276,8 @@ export class LibraryController {
 
 /** A plausible time for previews, so [TIME] sounds real without being live. */
 function sampleClock(): string {
-  return new Date()
-    .toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      minute: '2-digit',
-      hour12: true,
-    })
-    .replace(/\s+/g, ' ');
+  return formatClock(
+    new Date(),
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
 }
