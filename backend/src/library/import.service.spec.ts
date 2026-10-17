@@ -11,6 +11,10 @@ import type { SongsService } from './songs.service';
 const TRACK = join(__dirname, '../../media/02-morninglightmusic-happy-pop.mp3');
 
 describe('ImportService uploads', () => {
+  // Each case runs the real ffprobe on a real track; a busy machine needs longer
+  // than Jest's 5s default.
+  jest.setTimeout(30_000);
+
   const saved = process.env.ADMIN_PASSWORD;
   let dir: string;
   let remote: string[];

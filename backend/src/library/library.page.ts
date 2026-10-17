@@ -29,31 +29,31 @@ ${ADMIN_CSS}
   .count{color:var(--muted);font-size:12px;white-space:nowrap}
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:28px 0}
   .filename{color:var(--muted);font-size:11px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-  mark{background:#4a3a1a;color:var(--amber2);border-radius:3px;padding:0 2px}
-  .backlink{color:var(--amber);text-decoration:none;font-size:13px}
+  mark{background:color-mix(in srgb,var(--accent) 22%,transparent);color:var(--text);border-radius:3px;padding:0 2px}
+  .backlink{color:var(--accent-text);text-decoration:none;font-size:13px}
   .skipcell{text-align:center;width:52px}
-  .skipcell input{appearance:none;-webkit-appearance:none;width:17px;height:17px;border:1px solid var(--line);border-radius:5px;background:#0e0c0a;cursor:pointer;position:relative;vertical-align:middle;padding:0}
-  .skipcell input:hover{border-color:var(--amber)}
-  .skipcell input:checked{background:var(--amber);border-color:var(--amber)}
-  .skipcell input:checked::after{content:"";position:absolute;left:5px;top:1px;width:4px;height:9px;border:solid #1a1206;border-width:0 2px 2px 0;transform:rotate(45deg)}
-  .skipcell input:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .skipcell input{appearance:none;-webkit-appearance:none;width:17px;height:17px;border:1px solid var(--line-strong);border-radius:5px;background:var(--field);cursor:pointer;position:relative;vertical-align:middle;padding:0}
+  .skipcell input:hover{border-color:var(--accent)}
+  .skipcell input:checked{background:var(--accent);border-color:var(--accent)}
+  .skipcell input:checked::after{content:"";position:absolute;left:5px;top:1px;width:4px;height:9px;border:solid var(--on-accent);border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .skipcell input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .importgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:14px}
   .importgrid form{display:grid;gap:9px;align-content:start}
   .importgrid input[type=file]{padding:8px;font-size:13px}
   .hint{color:var(--muted);font-size:12px;line-height:1.45}
-  .reasons{color:#e0a24f;font-size:13px;margin:10px 0 0}
+  .reasons{color:var(--warn);font-size:13px;margin:10px 0 0}
   .progress{margin-top:16px;border-top:1px solid var(--line);padding-top:12px;font-size:13px}
   .progress .summary{margin-bottom:8px}
   .progress .row{display:flex;gap:10px;padding:5px 0;border-top:1px solid var(--line)}
   .progress .row:first-of-type{border-top:none}
   .progress .title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .progress .state{color:var(--muted);white-space:nowrap}
-  .progress .state.ok{color:#43c463}
-  .progress .state.bad{color:#e0574f}
+  .progress .state.ok{color:var(--ok)}
+  .progress .state.bad{color:var(--danger)}
   .progress .note{color:var(--muted);font-size:12px;padding:0 0 4px}
   @media(max-width:640px){.importgrid{grid-template-columns:1fr}}
-  .notice{display:flex;gap:11px;align-items:flex-start;background:#241d15;border:1px solid #4a3a22;border-radius:10px;padding:13px 15px;margin-bottom:16px;font-size:13px;line-height:1.5}
-  .notice b{color:var(--amber2);font-weight:600}
+  .notice{display:flex;gap:11px;align-items:flex-start;background:color-mix(in srgb,var(--accent) 10%,var(--glass-solid));border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);border-radius:12px;padding:13px 15px;margin-bottom:16px;font-size:13px;line-height:1.5}
+  .notice b{color:var(--accent-text);font-weight:600}
   .notice .muted{display:block;margin-top:4px}
   /* The row's controls read as one group; let the table scroll rather than
      wrapping them onto a second line on a narrow screen. */
@@ -377,7 +377,7 @@ ${ADMIN_CSS}
     var yt=q('ytCookies');
     yt.hidden=!d.youtubeCookies;
     yt.textContent=d.youtubeCookies?'YouTube cookies: '+d.youtubeCookies:'';
-    yt.style.color=d.youtubeCookiesOk?'':'#e0a24f';
+    yt.style.color=d.youtubeCookiesOk?'':'var(--warn)';
     var running=busy(d.job);
     q('linkBtn').disabled=!d.link||running;
     q('fileBtn').disabled=!d.upload||running;
