@@ -83,3 +83,10 @@ Phase II is done. Later phases (not yet started): song name/artist
 announcements, weather/news at the top of the hour, scheduled station-ID
 jingles. All slot into `DjService` as new interstitial types on the existing
 sequencer — see `docs/phase-2-dj-timecheck.md` §13 "Future work".
+
+## Before real users
+
+- Set `ADMIN_PASSWORD` (Render and `backend/.env`) to a long random value, e.g.
+  `openssl rand -base64 18`. Deferred on purpose while the station is only
+  being tested; the admin has no limit on wrong guesses, so length is the
+  only protection.

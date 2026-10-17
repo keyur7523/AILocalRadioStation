@@ -1,4 +1,8 @@
 import { AwsClient } from 'aws4fetch';
+import { createWriteStream } from 'node:fs';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream } from 'node:stream/web';
 
 /** One object in the bucket. */
 export interface RemoteObject {
@@ -65,13 +69,18 @@ export class R2Client {
     return objects;
   }
 
-  /** Download one object's bytes. */
-  async get(key: string): Promise<Buffer> {
+  /**
+   * Download one object straight to `path`, returning its size. Streamed, so a
+   * track never has to fit in memory on a small host.
+   */
+  async download(key: string, path: string): Promise<number> {
     const res = await this.aws.fetch(`${this.base}/${encodeURIComponent(key)}`);
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
       throw new Error(`get "${key}" failed: HTTP ${res.status}`);
     }
-    return Buffer.from(await res.arrayBuffer());
+    const out = createWriteStream(path);
+    await pipeline(Readable.fromWeb(res.body as ReadableStream), out);
+    return out.bytesWritten;
   }
 
   /** Upload one object. */
@@ -84,7 +93,12 @@ export class R2Client {
       `${this.base}/${encodeURIComponent(key)}`,
       {
         method: 'PUT',
-        body: new Uint8Array(body),
+        // A view, not a copy: the file is already in memory once.
+        body: new Uint8Array(
+          body.buffer as ArrayBuffer,
+          body.byteOffset,
+          body.byteLength,
+        ),
         headers: { 'Content-Type': contentType },
       },
     );

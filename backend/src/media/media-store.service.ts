@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, unlink } from 'node:fs/promises';
 import { readdirSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { loadStreamConfig } from '../stream/stream.config';
@@ -175,13 +175,18 @@ export class MediaStoreService {
     // configured — this is what lets the two sources coexist.
     const shipped = join(this.config.mediaDir, file);
     if (existsSync(shipped)) return shipped;
-    const bytes = await this.remote!.get(file);
     mkdirSync(dirname(target), { recursive: true });
     const partial = `${target}.part`;
-    await writeFile(partial, bytes);
+    let size: number;
+    try {
+      size = await this.remote!.download(file, partial);
+    } catch (err) {
+      await unlink(partial).catch(() => {});
+      throw err;
+    }
     await rename(partial, target);
     this.logger.log(
-      `fetched ${file} (${(bytes.length / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt}ms)`,
+      `fetched ${file} (${(size / 1024 / 1024).toFixed(1)} MB in ${Date.now() - startedAt}ms)`,
     );
     return target;
   }
