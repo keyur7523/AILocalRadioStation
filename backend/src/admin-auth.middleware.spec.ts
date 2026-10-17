@@ -2,7 +2,11 @@ import type { Request, Response } from 'express';
 import { adminAuth } from './admin-auth.middleware';
 
 /** Run the middleware once and report what it did. */
-function call(password: string, authorization?: string) {
+function call(
+  password: string,
+  authorization?: string,
+  req: { method?: string; headers?: Record<string, string> } = {},
+) {
   const headers: Record<string, string> = {};
   const res = {
     statusCode: 200,
@@ -18,7 +22,10 @@ function call(password: string, authorization?: string) {
   };
   const next = jest.fn();
   adminAuth(password)(
-    { headers: { authorization } } as unknown as Request,
+    {
+      method: req.method ?? 'GET',
+      headers: { authorization, ...req.headers },
+    } as unknown as Request,
     res as unknown as Response,
     next,
   );
@@ -56,5 +63,46 @@ describe('adminAuth', () => {
 
   it('stays open when no password is configured', () => {
     expect(call('').passed).toBe(true);
+  });
+});
+
+describe('adminAuth against other sites', () => {
+  const ok = basic('admin', 's3cret');
+  const post = (headers: Record<string, string>) =>
+    call('s3cret', ok, { method: 'POST', headers });
+
+  it('refuses a change a page on another site submits', () => {
+    const { passed, res } = post({ 'sec-fetch-site': 'cross-site' });
+    expect(passed).toBe(false);
+    expect(res.statusCode).toBe(403);
+    expect(post({ 'sec-fetch-site': 'same-site' }).passed).toBe(false);
+  });
+
+  it('falls back to the Origin header for older browsers', () => {
+    const host = 'radio.example.com';
+    expect(post({ host, origin: 'https://evil.example' }).passed).toBe(false);
+    expect(post({ host, origin: 'null' }).passed).toBe(false);
+    expect(post({ host, origin: `https://${host}` }).passed).toBe(true);
+  });
+
+  it("allows the admin page's own requests and non-browser clients", () => {
+    expect(post({ 'sec-fetch-site': 'same-origin' }).passed).toBe(true);
+    expect(post({}).passed).toBe(true);
+  });
+
+  it('still lets another site link to a page', () => {
+    expect(
+      call('s3cret', ok, { headers: { 'sec-fetch-site': 'cross-site' } })
+        .passed,
+    ).toBe(true);
+  });
+
+  it('refuses cross-site changes even with no password set', () => {
+    expect(
+      call('', undefined, {
+        method: 'POST',
+        headers: { 'sec-fetch-site': 'cross-site' },
+      }).passed,
+    ).toBe(false);
   });
 });

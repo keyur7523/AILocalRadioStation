@@ -83,7 +83,7 @@ export class SeguesService implements OnModuleInit {
   }
 
   async create(input: Partial<Segue>): Promise<Segue> {
-    const text = (input.text ?? '').trim();
+    const text = typeof input.text === 'string' ? input.text.trim() : '';
     if (!text) throw new Error('Segue text cannot be empty');
     const placement = this.assertPlacement(input.placement);
     const saved = await this.db.run(async (ds) => {
@@ -108,7 +108,7 @@ export class SeguesService implements OnModuleInit {
       const segue = await repo.findOne({ where: { id } });
       if (!segue) throw new Error(`No segue with id "${id}"`);
       if (patch.text !== undefined) {
-        const text = patch.text.trim();
+        const text = typeof patch.text === 'string' ? patch.text.trim() : '';
         if (!text) throw new Error('Segue text cannot be empty');
         segue.text = text;
       }

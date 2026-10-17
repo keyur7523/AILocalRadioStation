@@ -13,6 +13,11 @@ export class StreamController {
    */
   @Get('stream')
   stream(@Res() res: Response): void {
+    if (this.broadcaster.full) {
+      res.setHeader('Retry-After', '60');
+      res.status(503).send('The station is full right now. Try again soon.');
+      return;
+    }
     const { name, frequency } = this.broadcaster.getStationInfo();
 
     res.writeHead(200, {

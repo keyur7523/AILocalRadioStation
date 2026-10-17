@@ -71,6 +71,7 @@ Station identity and DJ behavior are set via env (see [`backend/.env.example`](b
 | `DJ_TTS_ENGINE` | `piper` (image) / `espeak` (local) | Voice engine |
 | `DJ_VOICES_DIR` | `/app/voices` | Folder of installed Piper voices; any `.onnx` here is offered at `/admin` |
 | `STREAM_BUFFER_SEC` | `6` | Decoded audio buffered ahead of the encoder, so a CPU spike can't drop the stream |
+| `STREAM_MAX_LISTENERS` | `100` | Most listeners at once; more get a "station full" response, so connections can't exhaust the host |
 | `LOG_LEVELS` | all | `error,warn,log,debug,verbose`; drop levels to quiet the logs |
 
 ### Library page
@@ -139,7 +140,7 @@ curl -X PUT https://ailocalradiostation-backend.onrender.com/admin/config \
 
 Changes apply live: the player updates on its next poll (~8s) and the DJ's spoken time switches on the next time-check. The choice is stored in Postgres when `DATABASE_URL` is set, so it survives restarts and redeploys.
 
-Set `ADMIN_PASSWORD` to protect `/admin` and every `/admin/*` API: the browser asks for it once (any username). Without it the admin is open to anyone and importing is disabled. With a password set, add `-u admin:<password>` to the `curl` examples above.
+Set `ADMIN_PASSWORD` to protect `/admin` and every `/admin/*` API: the browser asks for it once (any username). Without it the admin is open to anyone and importing is disabled. With a password set, add `-u admin:<password>` to the `curl` examples above. Changes sent from a page on another site are refused, so a site you visit can't use your signed-in browser to act on the station.
 
 ## Tech stack
 

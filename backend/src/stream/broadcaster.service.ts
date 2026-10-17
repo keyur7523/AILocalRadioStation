@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { SequencerService } from './dj/sequencer.service';
 import { StationConfigService } from './station-config.service';
+import { loadStreamConfig } from './stream.config';
 
 /**
  * Minimal contract for a connected listener. In practice this is an Express
@@ -42,6 +43,8 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
    */
   private static readonly MAX_BACKLOG_BYTES = 1024 * 1024;
 
+  private readonly maxListeners = loadStreamConfig().maxListeners;
+
   constructor(
     private readonly sequencer: SequencerService,
     private readonly station: StationConfigService,
@@ -63,6 +66,11 @@ export class BroadcasterService implements OnModuleInit, OnModuleDestroy {
       listeners: this.listeners.size,
       online: this.sequencer.online,
     };
+  }
+
+  /** True when another listener would exceed STREAM_MAX_LISTENERS. */
+  get full(): boolean {
+    return this.listeners.size >= this.maxListeners;
   }
 
   /** Register a listener; they immediately start receiving the live stream. */

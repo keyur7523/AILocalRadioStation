@@ -32,6 +32,12 @@ export interface StreamConfig {
    */
   bufferSec: number;
   /**
+   * Most listeners connected at once. /stream is public and each connection can
+   * hold up to 1 MB of backlog, so without a cap anyone could open enough of
+   * them to run a small host out of memory and take the station down.
+   */
+  maxListeners: number;
+  /**
    * Password for /admin and every /admin/* API. Unset keeps the admin open (so
    * a deploy cannot lock anyone out) but disables importing, which can put
    * arbitrary audio on the public stream.
@@ -185,6 +191,7 @@ export function loadStreamConfig(): StreamConfig {
     // encoder has primed, which stalls the pipeline outright — and it would be
     // too small to absorb anything useful anyway.
     bufferSec: Math.max(1, Number(process.env.STREAM_BUFFER_SEC ?? 6)),
+    maxListeners: Math.max(1, Number(process.env.STREAM_MAX_LISTENERS ?? 100)),
     adminPassword: process.env.ADMIN_PASSWORD ?? '',
     import: {
       maxTracks: Math.max(1, Number(process.env.IMPORT_MAX_TRACKS ?? 25)),
